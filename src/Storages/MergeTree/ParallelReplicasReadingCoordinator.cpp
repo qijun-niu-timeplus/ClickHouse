@@ -25,7 +25,7 @@ namespace DB
 class ParallelReplicasReadingCoordinator::Impl
 {
 public:
-    using PartitionReadRequestPtr = std::unique_ptr<PartitionReadRequest>;
+    using ParallelReadRequestPtr = std::unique_ptr<ParallelReadRequest>;
     using PartToMarkRanges = std::map<PartToRead::PartAndProjectionNames, HalfIntervals>;
 
     struct PartitionReading
@@ -39,11 +39,11 @@ public:
 
     std::mutex mutex;
 
-    PartitionReadResponse handleRequest(PartitionReadRequest request);
+    ParallelReadResponse handleRequest(ParallelReadRequest request);
 };
 
 
-PartitionReadResponse ParallelReplicasReadingCoordinator::Impl::handleRequest(PartitionReadRequest request)
+ParallelReadResponse ParallelReplicasReadingCoordinator::Impl::handleRequest(ParallelReadRequest request)
 {
     AtomicStopwatch watch;
     std::lock_guard lock(mutex);
@@ -128,7 +128,7 @@ PartitionReadResponse ParallelReplicasReadingCoordinator::Impl::handleRequest(Pa
     UNREACHABLE();
 }
 
-PartitionReadResponse ParallelReplicasReadingCoordinator::handleRequest(PartitionReadRequest request)
+ParallelReadResponse ParallelReplicasReadingCoordinator::handleRequest(ParallelReadRequest request)
 {
     return pimpl->handleRequest(std::move(request));
 }

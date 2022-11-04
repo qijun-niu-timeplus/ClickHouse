@@ -9,6 +9,7 @@
 #include <IO/ReadBuffer.h>
 
 #include <Storages/MergeTree/MarkRange.h>
+#include <Storages/MergeTree/RangesInDataPart.h>
 
 
 namespace DB
@@ -26,32 +27,37 @@ struct PartBlockRange
     }
 };
 
-struct PartitionReadRequest
+struct ParallelReadRequest
 {
-    String partition_id;
-    String part_name;
-    String projection_name;
-    PartBlockRange block_range;
-    MarkRanges mark_ranges;
+    size_t replica_num;
+    size_t min_number_of_marks;
 
     void serialize(WriteBuffer & out) const;
     void describe(WriteBuffer & out) const;
     void deserialize(ReadBuffer & in);
-
-    UInt64 getConsistentHash(size_t buckets) const;
 };
 
-struct PartitionReadResponse
+struct ParallelReadResponse
 {
-    bool denied{false};
-    MarkRanges mark_ranges{};
+    bool finish;
+    RangesInDataPartsDescription description;
 
     void serialize(WriteBuffer & out) const;
     void deserialize(ReadBuffer & in);
 };
 
 
-using MergeTreeReadTaskCallback = std::function<std::optional<PartitionReadResponse>(PartitionReadRequest)>;
+struct InitialAllRangesAnnouncement
+{
+    RangesInDataPartsDescription description;
+    size_t replica_num;
+
+    void serialize(WriteBuffer & out) const;
+    void deserialize(ReadBuffer & in);
+};
+
+using MergeTreeAllRangesCallback = std::function<void(InitialAllRangesAnnouncement)>;
+using MergeTreeReadTaskCallback = std::function<std::optional<ParallelReadResponse>(ParallelReadRequest)>;
 
 
 }

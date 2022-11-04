@@ -1851,9 +1851,10 @@ void InterpreterSelectQuery::addEmptySourceToQueryPlan(
     }
 }
 
-void InterpreterSelectQuery::setMergeTreeReadTaskCallbackAndClientInfo(MergeTreeReadTaskCallback && callback)
+void InterpreterSelectQuery::setMergeTreeReadTaskCallbackAndClientInfo(MergeTreeAllRangesCallback && all_callback, MergeTreeReadTaskCallback && callback)
 {
     context->getClientInfo().collaborate_with_initiator = true;
+    context->setMergeTreeAllRangesCallback(std::move(all_callback));
     context->setMergeTreeReadTaskCallback(std::move(callback));
 }
 
