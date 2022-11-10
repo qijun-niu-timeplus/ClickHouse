@@ -2,7 +2,7 @@
 import logging
 
 import boto3  # type: ignore
-from github import Github  # type: ignore
+from github import Github
 
 
 def get_parameter_from_ssm(name, decrypt=True, client=None):
