@@ -10,7 +10,7 @@ namespace DB
 class ParallelReplicasReadingCoordinator
 {
 public:
-    ParallelReplicasReadingCoordinator();
+    explicit ParallelReplicasReadingCoordinator(size_t replicas_count_);
     ~ParallelReplicasReadingCoordinator();
 
     void handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement);

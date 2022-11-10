@@ -3,6 +3,7 @@
 #include <base/sort.h>
 #include <Common/JSONBuilder.h>
 #include <Common/logger_useful.h>
+#include "Storages/MergeTree/MergeTreeParallelReplicasSelectProcessor.h"
 #include <Interpreters/Context.h>
 #include <Interpreters/ExpressionAnalyzer.h>
 #include <Interpreters/TreeRewriter.h>
@@ -192,13 +193,38 @@ Pipe ReadFromMergeTree::readFromPoolParallelReplicas(
         max_streams,
         extension,
         std::move(parts_with_range),
+        prewhere_info,
+        required_columns,
+        virt_column_names,
         min_marks_for_concurrent_read
     );
 
     pool->initialize();
 
-    return Pipe{};
-    // return Pipe(std::make_shared<NullSource>(pool->getHeader()));
+
+    Pipes pipes;
+    const auto & settings = context->getSettingsRef();
+    size_t total_rows = parts_with_range.getRowsCountAllParts();
+
+    for (size_t i = 0; i < max_streams; ++i)
+    {
+        auto source = std::make_shared<MergeTreeParallelReplicasSelectProcessor>(
+            i, pool, max_block_size,
+            settings.preferred_block_size_bytes, settings.preferred_max_column_in_block_size_bytes,
+            data, storage_snapshot, use_uncompressed_cache,
+            prewhere_info, actions_settings, reader_settings, virt_column_names);
+
+        /// Set the approximate number of rows for the first source only
+        /// In case of parallel processing on replicas do not set approximate rows at all.
+        /// Because the value will be identical on every replicas and will be accounted
+        /// multiple times (settings.max_parallel_replicas times more)
+        if (i == 0 && !client_info.collaborate_with_initiator)
+            source->addTotalRowsApprox(total_rows);
+
+        pipes.emplace_back(std::move(source));
+    }
+
+    return Pipe::unitePipes(std::move(pipes));
 }
 
 
@@ -1204,7 +1230,7 @@ void ReadFromMergeTree::initializePipeline(QueryPipelineBuilder & pipeline, cons
 
     Pipe pipe;
 
-    const auto & input_order_info = query_info.getInputOrderInfo();
+    // const auto & input_order_info = query_info.getInputOrderInfo();
 
     // if (final)
     // {

@@ -22,6 +22,8 @@ struct MarkRange
     MarkRange() = default;
     MarkRange(const size_t begin_, const size_t end_) : begin{begin_}, end{end_} {}
 
+    size_t getNumberOfMarks() const;
+
     bool operator==(const MarkRange & rhs) const;
     bool operator<(const MarkRange & rhs) const;
 };

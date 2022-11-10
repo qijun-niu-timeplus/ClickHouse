@@ -212,22 +212,19 @@ SelectStreamFactory::ShardPlans SelectStreamFactory::createForShardWithParallelR
     size_t next_replica_number = 0;
     size_t all_replicas_count = shard_info.getRemoteNodeCount();
 
-    auto coordinator = std::make_shared<ParallelReplicasReadingCoordinator>();
+    bool read_from_local = settings.prefer_localhost_replica && shard_info.isLocal() && !is_local_replica_obsolete();
+    if (read_from_local)
+        ++all_replicas_count;
+
+    auto coordinator = std::make_shared<ParallelReplicasReadingCoordinator>(all_replicas_count);
     auto remote_plan = std::make_unique<QueryPlan>();
 
-
-    if (settings.prefer_localhost_replica && shard_info.isLocal())
+    if (read_from_local)
     {
-        /// We don't need more than one local replica in parallel reading
-        if (!is_local_replica_obsolete())
-        {
-            ++all_replicas_count;
-
-            result.local_plan = createLocalPlan(
+        result.local_plan = createLocalPlan(
                 query_ast, header, context, processed_stage, shard_info.shard_num, shard_count, next_replica_number, all_replicas_count, coordinator);
 
-            ++next_replica_number;
-        }
+        ++next_replica_number;
     }
 
     Scalars scalars = context->hasQueryContext() ? context->getQueryContext()->getScalars() : Scalars{};

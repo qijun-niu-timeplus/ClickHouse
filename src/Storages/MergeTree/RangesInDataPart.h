@@ -23,9 +23,9 @@ struct RangesInDataPartDescription
     void deserialize(ReadBuffer & in);
 };
 
-struct RangesInDataPartsDescription: public std::vector<RangesInDataPartDescription>
+struct RangesInDataPartsDescription: public std::deque<RangesInDataPartDescription>
 {
-    using std::vector<RangesInDataPartDescription>::vector;
+    using std::deque<RangesInDataPartDescription>::deque;
 
     void serialize(WriteBuffer & out) const;
     void describe(WriteBuffer & out) const;

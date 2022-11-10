@@ -11,6 +11,11 @@ namespace ErrorCodes
     extern const int LOGICAL_ERROR;
 }
 
+size_t MarkRange::getNumberOfMarks() const
+{
+    return end - begin;
+}
+
 bool MarkRange::operator==(const MarkRange & rhs) const
 {
     return begin == rhs.begin && end == rhs.end;

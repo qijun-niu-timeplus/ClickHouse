@@ -82,7 +82,6 @@ size_t RangesInDataPart::getRowsCount() const
 RangesInDataPartsDescription RangesInDataParts::getDescriptions() const
 {
     RangesInDataPartsDescription result;
-    result.reserve(this->size());
     for (const auto & part : *this)
         result.emplace_back(part.getDescription());
     return result;

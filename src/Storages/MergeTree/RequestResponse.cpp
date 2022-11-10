@@ -18,8 +18,9 @@ namespace ErrorCodes
 
 void ParallelReadRequest::serialize(WriteBuffer & out) const
 {
+    UInt64 version = DBMS_PARALLEL_REPLICAS_PROTOCOL_VERSION;
     /// Must be the first
-    writeIntBinary(DBMS_PARALLEL_REPLICAS_PROTOCOL_VERSION, out);
+    writeIntBinary(version, out);
 
     writeIntBinary(replica_num, out);
     writeIntBinary(min_number_of_marks, out);
@@ -39,8 +40,8 @@ void ParallelReadRequest::deserialize(ReadBuffer & in)
     UInt64 version;
     readIntBinary(version, in);
     if (version != DBMS_PARALLEL_REPLICAS_PROTOCOL_VERSION)
-        throw Exception(ErrorCodes::UNKNOWN_PROTOCOL, "Protocol versions for parallel reading \
-            from replicas differ. Got: {}, supported version: {}",
+        throw Exception(ErrorCodes::UNKNOWN_PROTOCOL, "Protocol versions for parallel reading "\
+            "from replicas differ. Got: {}, supported version: {}",
             version, DBMS_PARALLEL_REPLICAS_PROTOCOL_VERSION);
 
     readIntBinary(replica_num, in);
@@ -49,11 +50,20 @@ void ParallelReadRequest::deserialize(ReadBuffer & in)
 
 void ParallelReadResponse::serialize(WriteBuffer & out) const
 {
+    UInt64 version = DBMS_PARALLEL_REPLICAS_PROTOCOL_VERSION;
     /// Must be the first
-    writeVarUInt(DBMS_PARALLEL_REPLICAS_PROTOCOL_VERSION, out);
+    writeIntBinary(version, out);
 
     writeBoolText(finish, out);
     description.serialize(out);
+}
+
+void ParallelReadResponse::describe(WriteBuffer & out) const
+{
+    String result;
+    result += fmt::format("finish: {} \n", finish);
+    out.write(result.c_str(), result.size());
+    description.describe(out);
 }
 
 void ParallelReadResponse::deserialize(ReadBuffer & in)
@@ -61,8 +71,8 @@ void ParallelReadResponse::deserialize(ReadBuffer & in)
     UInt64 version;
     readIntBinary(version, in);
     if (version != DBMS_PARALLEL_REPLICAS_PROTOCOL_VERSION)
-        throw Exception(ErrorCodes::UNKNOWN_PROTOCOL, "Protocol versions for parallel reading \
-            from replicas differ. Got: {}, supported version: {}",
+        throw Exception(ErrorCodes::UNKNOWN_PROTOCOL, "Protocol versions for parallel reading " \
+            "from replicas differ. Got: {}, supported version: {}",
             version, DBMS_PARALLEL_REPLICAS_PROTOCOL_VERSION);
 
     readBoolText(finish, in);

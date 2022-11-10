@@ -39,7 +39,7 @@ MergeTreeParallelReplicasSelectProcessor::MergeTreeParallelReplicasSelectProcess
 /// Requests read task from MergeTreeReadPool and signals whether it got one
 bool MergeTreeParallelReplicasSelectProcessor::getNewTaskImpl()
 {
-    task = pool->getTask(thread);
+    task = pool->getTask();
     return static_cast<bool>(task);
 }
 

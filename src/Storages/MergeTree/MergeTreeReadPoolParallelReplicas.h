@@ -26,19 +26,27 @@ public:
         size_t threads_,
         ParallelReadingExtension extension_,
         RangesInDataParts && parts_,
+        const PrewhereInfoPtr & prewhere_info_,
+        const Names & column_names_,
+        const Names & virtual_column_names_,
         size_t min_marks_for_concurrent_read_
     )
     : storage_snapshot(storage_snapshot_)
     , extension(extension_)
+    , column_names{column_names_}
+    , virtual_column_names{virtual_column_names_}
+    , prewhere_info(prewhere_info_)
     , parts_ranges(parts_)
     , threads(threads_)
     , min_marks_for_concurrent_read(min_marks_for_concurrent_read_)
-    {}
+    {
+        fillPerPartInfo(parts_ranges);
+    }
 
     /// Sends all the data about selected parts to the initiator
     void initialize();
 
-    static MergeTreeReadTaskPtr getTask(size_t thread);
+    MergeTreeReadTaskPtr getTask();
 
     Block getHeader();
 
@@ -47,7 +55,34 @@ public:
 private:
     StorageSnapshotPtr storage_snapshot;
     ParallelReadingExtension extension;
+
+    std::vector<size_t> fillPerPartInfo(const RangesInDataParts & parts);
+
+    const Names column_names;
+    const Names virtual_column_names;
+
+    struct PerPartParams
+    {
+        MergeTreeReadTaskColumns task_columns;
+        NameSet column_name_set;
+        MergeTreeBlockSizePredictorPtr size_predictor;
+    };
+
+    std::vector<PerPartParams> per_part_params;
+
+    PrewhereInfoPtr prewhere_info;
+
+    struct Part
+    {
+        MergeTreeData::DataPartPtr data_part;
+        size_t part_index_in_query;
+    };
+
+    std::vector<Part> parts_with_idx;
+
+    RangesInDataPartsDescription buffered_ranges;
     RangesInDataParts parts_ranges;
+
     [[maybe_unused]] size_t threads;
     [[maybe_unused]] size_t min_marks_for_concurrent_read;
 

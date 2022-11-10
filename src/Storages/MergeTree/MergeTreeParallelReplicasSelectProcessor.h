@@ -41,7 +41,7 @@ protected:
 
 private:
     /// "thread" index (there are N threads and each thread is assigned index in interval [0..N-1])
-    size_t thread;
+    [[ maybe_unused ]] size_t thread;
 
     MergeTreeReadPoolParallelReplicasPtr pool;
 

@@ -39,10 +39,11 @@ struct ParallelReadRequest
 
 struct ParallelReadResponse
 {
-    bool finish;
+    bool finish{false};
     RangesInDataPartsDescription description;
 
     void serialize(WriteBuffer & out) const;
+    void describe(WriteBuffer & out) const;
     void deserialize(ReadBuffer & in);
 };
 
