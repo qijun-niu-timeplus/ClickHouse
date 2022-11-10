@@ -3451,7 +3451,7 @@ void Context::setMergeTreeReadTaskCallback(MergeTreeReadTaskCallback && callback
 }
 
 
-MergeTreeAllRangesCallback getMergeTreeAllRangesCallback() const
+MergeTreeAllRangesCallback Context::getMergeTreeAllRangesCallback() const
 {
     if (!merge_tree_all_ranges_callback.has_value())
         throw Exception(ErrorCodes::LOGICAL_ERROR, "Next task callback for is not set for query {}", getInitialQueryId());
@@ -3459,7 +3459,7 @@ MergeTreeAllRangesCallback getMergeTreeAllRangesCallback() const
     return merge_tree_all_ranges_callback.value();
 }
 
-void setMergeTreeAllRangesCallback(MergeTreeAllRangesCallback && callback)
+void Context::setMergeTreeAllRangesCallback(MergeTreeAllRangesCallback && callback)
 {
     merge_tree_all_ranges_callback = callback;
 }

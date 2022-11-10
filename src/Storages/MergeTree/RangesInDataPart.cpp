@@ -1,4 +1,5 @@
 #include <Storages/MergeTree/RangesInDataPart.h>
+#include "IO/VarInt.h"
 
 
 namespace DB
@@ -13,9 +14,13 @@ void RangesInDataPartDescription::serialize(WriteBuffer & out) const
 void RangesInDataPartDescription::describe(WriteBuffer & out) const
 {
     String result;
-    result += fmt::format("partition_id: {} \n", info.partition_id);
-    // TODO: More fields
-    (void)out;
+    result += "Reading from part: \n";
+    result += fmt::format("partition_id: {}, min_block: {}, max_block: {} \n", info.partition_id, info.min_block, info.max_block);
+    result += "Ranges: ";
+    for (const auto & range : ranges)
+        result += fmt::format("({}, {}), ", range.begin, range.end);
+    result += '\n';
+    out.write(result.c_str(), result.size());
 }
 
 void RangesInDataPartDescription::deserialize(ReadBuffer & in)
@@ -27,6 +32,7 @@ void RangesInDataPartDescription::deserialize(ReadBuffer & in)
 
 void RangesInDataPartsDescription::serialize(WriteBuffer & out) const
 {
+    writeIntBinary(this->size(), out);
     for (const auto & desc : *this)
         desc.serialize(out);
 }
@@ -40,8 +46,14 @@ void RangesInDataPartsDescription::describe(WriteBuffer & out) const
 
 void RangesInDataPartsDescription::deserialize(ReadBuffer & in)
 {
+    std::cout << "Deserializing RangesInDataPartsDescription" << std::endl;
+
+    size_t new_size = 0;
+    readIntBinary(new_size, in);
+    this->resize(new_size);
     for (auto & desc : *this)
         desc.deserialize(in);
+    std::cout << "Deserialization done" << std::endl;
 }
 
 RangesInDataPartDescription RangesInDataPart::getDescription() const
@@ -65,6 +77,17 @@ size_t RangesInDataPart::getRowsCount() const
 {
     return data_part->index_granularity.getRowsCountInRanges(ranges);
 }
+
+
+RangesInDataPartsDescription RangesInDataParts::getDescriptions() const
+{
+    RangesInDataPartsDescription result;
+    result.reserve(this->size());
+    for (const auto & part : *this)
+        result.emplace_back(part.getDescription());
+    return result;
+}
+
 
 size_t RangesInDataParts::getMarksCountAllParts() const
 {

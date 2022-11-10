@@ -6,13 +6,14 @@
 namespace DB
 {
 
+
 class ParallelReplicasReadingCoordinator
 {
 public:
     ParallelReplicasReadingCoordinator();
     ~ParallelReplicasReadingCoordinator();
 
-    void handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement) {}
+    void handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement);
     ParallelReadResponse handleRequest(ParallelReadRequest request);
 
 private:

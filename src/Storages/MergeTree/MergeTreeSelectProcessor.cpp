@@ -23,13 +23,12 @@ MergeTreeSelectProcessor::MergeTreeSelectProcessor(
     const MergeTreeReaderSettings & reader_settings_,
     const Names & virt_column_names_,
     size_t part_index_in_query_,
-    bool has_limit_below_one_block_,
-    std::optional<ParallelReadingExtension> extension_)
+    bool has_limit_below_one_block_)
     : MergeTreeBaseSelectProcessor{
         storage_snapshot_->getSampleBlockForColumns(required_columns_),
         storage_, storage_snapshot_, prewhere_info_, std::move(actions_settings), max_block_size_rows_,
         preferred_block_size_bytes_, preferred_max_column_in_block_size_bytes_,
-        reader_settings_, use_uncompressed_cache_, virt_column_names_, extension_},
+        reader_settings_, use_uncompressed_cache_, virt_column_names_},
     required_columns{std::move(required_columns_)},
     data_part{owned_data_part_},
     sample_block(storage_snapshot_->metadata->getSampleBlock()),

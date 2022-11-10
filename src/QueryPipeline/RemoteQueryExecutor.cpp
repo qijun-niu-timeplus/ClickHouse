@@ -367,6 +367,9 @@ std::optional<Block> RemoteQueryExecutor::processPacket(Packet packet)
         case Protocol::Server::MergeTreeReadTaskRequest:
             processMergeTreeReadTaskRequest(packet.request);
             break;
+        case Protocol::Server::MergeTreeAllRangesAnnounecement:
+            processMergeTreeInitialReadAnnounecement(packet.announcement);
+            break;
         case Protocol::Server::ReadTaskRequest:
             processReadTaskRequest();
             break;
@@ -472,6 +475,11 @@ void RemoteQueryExecutor::processMergeTreeReadTaskRequest(ParallelReadRequest re
 
     auto response = parallel_reading_coordinator->handleRequest(std::move(request));
     connections->sendMergeTreeReadTaskResponse(response);
+}
+
+void RemoteQueryExecutor::processMergeTreeInitialReadAnnounecement(InitialAllRangesAnnouncement announcement)
+{
+    parallel_reading_coordinator->handleInitialAllRangesAnnouncement(announcement);
 }
 
 void RemoteQueryExecutor::finish(std::unique_ptr<ReadContext> * read_context)

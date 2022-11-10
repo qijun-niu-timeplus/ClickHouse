@@ -59,6 +59,8 @@ struct RangesInDataParts: public std::vector<RangesInDataPart>
 {
     using std::vector<RangesInDataPart>::vector;
 
+    RangesInDataPartsDescription getDescriptions() const;
+
     size_t getMarksCountAllParts() const;
     size_t getRowsCountAllParts() const;
 };

@@ -53,6 +53,7 @@ struct InitialAllRangesAnnouncement
     size_t replica_num;
 
     void serialize(WriteBuffer & out) const;
+    void describe(WriteBuffer & out);
     void deserialize(ReadBuffer & in);
 };
 

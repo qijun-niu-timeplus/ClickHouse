@@ -68,6 +68,7 @@ public:
         /// The same as InOrder, but in reverse order.
         /// For every part, read ranges and granules from end to begin. Also add ReverseTransform.
         InReverseOrder,
+        Parallel,
     };
 
     struct AnalysisResult
@@ -198,6 +199,7 @@ private:
 
     Pipe read(RangesInDataParts parts_with_range, Names required_columns, ReadType read_type, size_t max_streams, size_t min_marks_for_concurrent_read, bool use_uncompressed_cache);
     Pipe readFromPool(RangesInDataParts parts_with_ranges, Names required_columns, size_t max_streams, size_t min_marks_for_concurrent_read, bool use_uncompressed_cache);
+    Pipe readFromPoolParallelReplicas(RangesInDataParts parts_with_ranges, Names requiered_columns, size_t max_streams, size_t min_marks_for_concurrent_read, bool use_uncompressed_cache);
     Pipe readInOrder(RangesInDataParts parts_with_range, Names required_columns, ReadType read_type, bool use_uncompressed_cache, UInt64 limit);
 
     template<typename TSource>
