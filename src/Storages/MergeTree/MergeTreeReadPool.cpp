@@ -1,6 +1,7 @@
 #include <Storages/MergeTree/MergeTreeReadPool.h>
 #include <Storages/MergeTree/MergeTreeBaseSelectProcessor.h>
 #include <Storages/MergeTree/LoadedMergeTreeDataPartInfoForReader.h>
+#include "Common/Stopwatch.h"
 #include <Common/formatReadable.h>
 #include <base/range.h>
 

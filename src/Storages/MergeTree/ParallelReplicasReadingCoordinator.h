@@ -6,10 +6,11 @@
 namespace DB
 {
 
-
 class ParallelReplicasReadingCoordinator
 {
 public:
+    class ImplInterface;
+
     explicit ParallelReplicasReadingCoordinator(size_t replicas_count_);
     ~ParallelReplicasReadingCoordinator();
 
@@ -17,8 +18,7 @@ public:
     ParallelReadResponse handleRequest(ParallelReadRequest request);
 
 private:
-    class Impl;
-    std::unique_ptr<Impl> pimpl;
+    std::unique_ptr<ImplInterface> pimpl;
 };
 
 using ParallelReplicasReadingCoordinatorPtr = std::shared_ptr<ParallelReplicasReadingCoordinator>;

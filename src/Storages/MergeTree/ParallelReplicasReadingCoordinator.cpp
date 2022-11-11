@@ -12,6 +12,7 @@
 #include <set>
 #include <cassert>
 
+#include <consistent_hashing.h>
 
 #include <Common/logger_useful.h>
 #include <base/types.h>
@@ -26,16 +27,30 @@
 namespace DB
 {
 
-class ParallelReplicasReadingCoordinator::Impl
+
+class ParallelReplicasReadingCoordinator::ImplInterface
+{
+public:
+    virtual ~ImplInterface() = default;
+    virtual ParallelReadResponse handleRequest(ParallelReadRequest request) = 0;
+    virtual void handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement announcement) = 0;
+};
+
+
+class DefaultCoordinator : public ParallelReplicasReadingCoordinator::ImplInterface
 {
 public:
     using ParallelReadRequestPtr = std::unique_ptr<ParallelReadRequest>;
     using PartToMarkRanges = std::map<PartToRead::PartAndProjectionNames, HalfIntervals>;
 
-    explicit Impl(size_t replicas_count_)
+    explicit DefaultCoordinator(size_t replicas_count_)
         : replicas_count(replicas_count_)
         , announcements(replicas_count_)
+        , reading_state(replicas_count_)
+        , stats(replicas_count_)
     {}
+
+    ~DefaultCoordinator() override;
 
     struct PartitionReading
     {
@@ -54,59 +69,105 @@ public:
     struct Part
     {
         RangesInDataPartDescription description;
-        std::vector<size_t> replicas;
+        // FIXME: This is needed to put this struct in set
+        // and modify through iterator
+        mutable std::set<size_t> replicas;
+
+        bool operator<(const Part & rhs) const { return description.info < rhs.description.info; }
     };
 
-    std::vector<Part> reading_state;
+    struct PreferredSelectionForReplica
+    {
+        std::vector<Part> parts;
+        std::mutex mutex;
+    };
 
-    ParallelReadResponse handleRequest(ParallelReadRequest request);
-    void handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement announcement);
+    /// Per-replica preferred parts splitted by consistent hash
+    /// Once all task will be done by some replica, it can steal tasks
+    std::vector<PreferredSelectionForReplica> reading_state;
+
+    struct Stat
+    {
+        size_t number_of_requests{0};
+        size_t sum_marks{0};
+    };
+
+    using Stats = std::vector<Stat>;
+    Stats stats;
+
+    std::atomic<bool> state_initialized{false};
+
+    ParallelReadResponse handleRequest(ParallelReadRequest request) override;
+    void handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement announcement) override;
 
     void computeReadingState();
+    void selectPartsForReplica(size_t replica_num, size_t min_number_of_marks, size_t & current_mark_size, ParallelReadResponse & response);
 };
 
-void ParallelReplicasReadingCoordinator::Impl::computeReadingState()
+DefaultCoordinator::~DefaultCoordinator()
 {
+    String result = "Coordination done. Statistics: ";
+    for (size_t i = 0; i < stats.size(); ++i)
+    {
+        result += fmt::format("-- replica {}, requsts: {} marks: {} ", i, stats[i].number_of_requests, stats[i].sum_marks);
+    }
+    LOG_TRACE(&Poco::Logger::get("Anime"), "{}", result);
+}
+
+void DefaultCoordinator::computeReadingState()
+{
+    /// To get rid of duplicates
+    std::set<Part> all_parts_to_read;
+
     for (auto & replica_parts: announcements)
     {
         for (auto & part: replica_parts.description)
         {
-            bool have_exactly_this_part = false;
-            size_t exact_part_index = 0;
-            for (size_t i = 0; i < reading_state.size(); ++i)
+            auto it = std::find_if(all_parts_to_read.begin(), all_parts_to_read.end(),
+                [&part] (const Part & other) { return other.description.info == part.info; });
+
+            if (it != all_parts_to_read.end())
             {
-                if (reading_state[i].description.info == part.info)
-                {
-                    have_exactly_this_part = true;
-                    exact_part_index = i;
-                    break;
-                }
-            }
-            if (have_exactly_this_part)
-            {
-                reading_state[exact_part_index].replicas.push_back(replica_parts.replica_num);
+                it->replicas.insert(replica_parts.replica_num);
                 continue;
             }
 
-            reading_state.push_back({
+            all_parts_to_read.insert({
                 .description = part,
                 .replicas = {replica_parts.replica_num}
             });
         }
     }
 
-    std::cout << "Overall reading state" << std::endl;
-    for (auto & part : reading_state)
+    /// Split all part by consistent hash
+    while (!all_parts_to_read.empty())
     {
-        WriteBufferFromOwnString ss;
-        part.description.describe(ss);
-        std::cout << ss.str();
-        std::cout << "Found on " << fmt::format("{}", fmt::join(part.replicas, ", ")) << std::endl;
+        auto current_part_it = all_parts_to_read.begin();
+        auto hash = SipHash();
+        hash.update(current_part_it->description.info.getPartName());
+        auto consistent_hash = ConsistentHashing(hash.get64(), replicas_count);
+
+        if (current_part_it->replicas.contains(consistent_hash))
+        {
+            reading_state[consistent_hash].parts.emplace_back(*current_part_it);
+            all_parts_to_read.erase(current_part_it);
+            continue;
+        }
+
+        /// In this situation just assign to a random replica which has this part
+        auto replica = *(std::next(current_part_it->replicas.begin(), thread_local_rng() % current_part_it->replicas.size()));
+        reading_state[replica].parts.emplace_back(*current_part_it);
+        all_parts_to_read.erase(current_part_it);
     }
+
+
+    LOG_TRACE(&Poco::Logger::get("Anime"), "State initialized" );
+    state_initialized = true;
+    state_initialized.notify_all();
 }
 
 
-void ParallelReplicasReadingCoordinator::Impl::handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement announcement)
+void DefaultCoordinator::handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement announcement)
 {
     std::lock_guard lock(mutex);
 
@@ -116,47 +177,51 @@ void ParallelReplicasReadingCoordinator::Impl::handleInitialAllRangesAnnouncemen
     std::cout << ss.str() << std::endl;
 
     announcements[announcement.replica_num] = std::move(announcement);
+    stats[announcement.replica_num].number_of_requests +=1;
 
     ++sent_initial_requests;
     if (sent_initial_requests == replicas_count)
         computeReadingState();
 }
 
-ParallelReadResponse ParallelReplicasReadingCoordinator::Impl::handleRequest(ParallelReadRequest request)
+void DefaultCoordinator::selectPartsForReplica(size_t replica_num, size_t min_number_of_marks, size_t & current_mark_size, ParallelReadResponse & response)
 {
-    AtomicStopwatch watch;
-    std::lock_guard lock(mutex);
+    std::lock_guard lock(reading_state[replica_num].mutex);
 
-    LOG_TRACE(&Poco::Logger::get("Anime"), "Handling request from replica {}, minimal marks size is {}", request.replica_num, request.min_number_of_marks );
-
-    size_t current_mark_size = 0;
-    ParallelReadResponse response;
-
-    for (auto & part : reading_state)
+    for (auto & part : reading_state[replica_num].parts)
     {
-        if (std::find(part.replicas.begin(), part.replicas.end(), request.replica_num) == part.replicas.end())
+        if (std::find(part.replicas.begin(), part.replicas.end(), replica_num) == part.replicas.end())
+        {
+            LOG_TRACE(&Poco::Logger::get("Anime"), "Not found part {} on replica {}", part.description.info.getPartName(), replica_num);
             continue;
+        }
 
-        if (current_mark_size >= request.min_number_of_marks)
+        if (current_mark_size >= min_number_of_marks)
+        {
+            LOG_TRACE(&Poco::Logger::get("Anime"), "Current mark size {} is bigger than min_number_marks {}", current_mark_size, min_number_of_marks);
             continue;
+        }
 
         if (part.description.ranges.empty())
+        {
+            LOG_TRACE(&Poco::Logger::get("Anime"), "Part {} is already empty in reading state", part.description.info.getPartName());
             continue;
+        }
 
         response.description.push_back({
             .info = part.description.info,
             .ranges = {},
         });
 
-        while (!part.description.ranges.empty() && current_mark_size < request.min_number_of_marks)
+        while (!part.description.ranges.empty() && current_mark_size < min_number_of_marks)
         {
             auto range = part.description.ranges.front();
 
-            if (range.getNumberOfMarks() > request.min_number_of_marks)
+            if (range.getNumberOfMarks() > min_number_of_marks)
             {
                 auto new_range = range;
-                range.begin += request.min_number_of_marks;
-                new_range.end = new_range.begin + request.min_number_of_marks;
+                range.begin += min_number_of_marks;
+                new_range.end = new_range.begin + min_number_of_marks;
 
                 part.description.ranges.front() = range;
 
@@ -170,6 +235,34 @@ ParallelReadResponse ParallelReplicasReadingCoordinator::Impl::handleRequest(Par
             part.description.ranges.pop_front();
         }
     }
+}
+
+ParallelReadResponse DefaultCoordinator::handleRequest(ParallelReadRequest request)
+{
+    state_initialized.wait(false);
+    std::lock_guard lock(mutex);
+
+    LOG_TRACE(&Poco::Logger::get("Anime"), "Handling request from replica {}, minimal marks size is {}", request.replica_num, request.min_number_of_marks );
+
+    size_t current_mark_size = 0;
+    ParallelReadResponse response;
+
+    selectPartsForReplica(request.replica_num, request.min_number_of_marks, current_mark_size, response);
+
+    if (current_mark_size < request.min_number_of_marks)
+    {
+        for (size_t i = 0; i < replicas_count; ++i)
+        {
+            if (i != request.replica_num)
+                selectPartsForReplica(i, request.min_number_of_marks, current_mark_size, response);
+
+            if (current_mark_size >= request.min_number_of_marks)
+                break;
+        }
+    }
+
+    stats[request.replica_num].number_of_requests += 1;
+    stats[request.replica_num].sum_marks += current_mark_size;
 
     if (response.description.empty())
         response.finish = true;
@@ -195,7 +288,7 @@ ParallelReadResponse ParallelReplicasReadingCoordinator::handleRequest(ParallelR
 
 ParallelReplicasReadingCoordinator::ParallelReplicasReadingCoordinator(size_t replicas_count_)
 {
-    pimpl = std::make_unique<ParallelReplicasReadingCoordinator::Impl>(replicas_count_);
+    pimpl = std::make_unique<DefaultCoordinator>(replicas_count_);
 }
 
 ParallelReplicasReadingCoordinator::~ParallelReplicasReadingCoordinator() = default;

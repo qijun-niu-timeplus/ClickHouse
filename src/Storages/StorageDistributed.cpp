@@ -659,6 +659,8 @@ void StorageDistributed::read(
     const size_t /*max_block_size*/,
     const size_t /*num_streams*/)
 {
+    std::cout << StackTrace().toString() << std::endl;
+
     const auto * select_query = query_info.query->as<ASTSelectQuery>();
     if (select_query->final() && local_context->getSettingsRef().allow_experimental_parallel_reading_from_replicas)
         throw Exception(ErrorCodes::ILLEGAL_FINAL, "Final modifier is not allowed together with parallel reading from replicas feature");

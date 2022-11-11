@@ -1,13 +1,24 @@
+#include <ctime>
 #include <mutex>
 #include <Storages/MergeTree/MergeTreeReadPoolParallelReplicas.h>
 #include <Storages/MergeTree/LoadedMergeTreeDataPartInfoForReader.h>
+#include <Poco/Logger.h>
+#include "Common/ThreadPool.h"
+#include <Common/logger_useful.h>
+#include "Common/Stopwatch.h"
 #include "IO/WriteBuffer.h"
 #include "IO/WriteBufferFromString.h"
 #include "Interpreters/Context.h"
+#include "Storages/MergeTree/RequestResponse.h"
 
 namespace DB
 {
 
+MergeTreeReadPoolParallelReplicas::~MergeTreeReadPoolParallelReplicas()
+{
+    std::sort(times_to_respond.begin(), times_to_respond.end());
+    LOG_TRACE(&Poco::Logger::get("Anime"), "{}", fmt::join(times_to_respond, ", "));
+}
 
 void MergeTreeReadPoolParallelReplicas::initialize()
 {
@@ -26,6 +37,8 @@ void MergeTreeReadPoolParallelReplicas::initialize()
             .replica_num = extension.number_of_current_replica,
         }
     );
+
+    sendRequest();
 }
 
 Block MergeTreeReadPoolParallelReplicas::getHeader()
@@ -72,27 +85,42 @@ std::vector<size_t> MergeTreeReadPoolParallelReplicas::fillPerPartInfo(const Ran
 }
 
 
-
-MergeTreeReadTaskPtr MergeTreeReadPoolParallelReplicas::getTask()
+void MergeTreeReadPoolParallelReplicas::sendRequest()
 {
-    std::lock_guard lock(mutex);
-
-    std::cout << "Requested a task" << std::endl;
-
-    if (buffered_ranges.empty())
+    auto promise_response = std::make_shared<std::promise<std::optional<ParallelReadResponse>>>();
+    future_response = promise_response->get_future();
+    GlobalThreadPool::instance().scheduleOrThrow([promise = std::move(promise_response), this]() mutable
     {
-        std::cout << "Going to collaborate with initiator" << std::endl;
-
         auto result = extension.callback(ParallelReadRequest{
             .replica_num = extension.number_of_current_replica,
             .min_number_of_marks = min_marks_for_concurrent_read * threads * 2
         });
+        promise->set_value(result);
+    });
+}
+
+
+MergeTreeReadTaskPtr MergeTreeReadPoolParallelReplicas::getTask()
+{
+    Stopwatch stopwatch;
+    std::lock_guard lock(mutex);
+
+    if (no_more_tasks_available)
+        return nullptr;
+
+    std::cout << "Requested a task" << std::endl;
+
+    if (buffered_ranges.empty() && future_response.valid())
+    {
+        auto result = future_response.get();
+
+        std::cout << "Going to collaborate with initiator" << std::endl;
 
         if (!result || result->finish)
         {
+            no_more_tasks_available = true;
             return nullptr;
         }
-
 
         WriteBufferFromOwnString ss;
         result->describe(ss);
@@ -100,6 +128,9 @@ MergeTreeReadTaskPtr MergeTreeReadPoolParallelReplicas::getTask()
 
         buffered_ranges = std::move(result->description);
     }
+
+    if (buffered_ranges.empty())
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "No tasks to read. This is a bug");
 
     auto & current_task = buffered_ranges.front();
 
@@ -152,6 +183,10 @@ MergeTreeReadTaskPtr MergeTreeReadPoolParallelReplicas::getTask()
         std::cout << range.begin << ' ' << range.end << std::endl;
     }
 
+    if (buffered_ranges.empty())
+        sendRequest();
+
+    times_to_respond.push_back(stopwatch.elapsedMicroseconds());
 
     return std::make_unique<MergeTreeReadTask>(
         part.data_part, ranges_to_read, part.part_index_in_query, column_names,

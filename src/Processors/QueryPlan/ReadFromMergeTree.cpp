@@ -460,12 +460,12 @@ Pipe ReadFromMergeTree::spreadMarkRangesAmongStreams(
         return {};
 
     size_t num_streams = requested_num_streams;
-    // if (num_streams > 1)
-    // {
-    //     /// Reduce the number of num_streams if the data is small.
-    //     if (info.sum_marks < num_streams * info.min_marks_for_concurrent_read && parts_with_ranges.size() < num_streams)
-    //         num_streams = std::max((info.sum_marks + info.min_marks_for_concurrent_read - 1) / info.min_marks_for_concurrent_read, parts_with_ranges.size());
-    // }
+    if (num_streams > 1)
+    {
+        /// Reduce the number of num_streams if the data is small.
+        if (info.sum_marks < num_streams * info.min_marks_for_concurrent_read && parts_with_ranges.size() < num_streams)
+            num_streams = std::max((info.sum_marks + info.min_marks_for_concurrent_read - 1) / info.min_marks_for_concurrent_read, parts_with_ranges.size());
+    }
 
     auto read_type = all_ranges_callback ? ReadType::Parallel : ReadType::Default;
 
@@ -1230,41 +1230,41 @@ void ReadFromMergeTree::initializePipeline(QueryPipelineBuilder & pipeline, cons
 
     Pipe pipe;
 
-    // const auto & input_order_info = query_info.getInputOrderInfo();
+    const auto & input_order_info = query_info.getInputOrderInfo();
 
-    // if (final)
-    // {
-    //     /// Add columns needed to calculate the sorting expression and the sign.
-    //     std::vector<String> add_columns = metadata_for_reading->getColumnsRequiredForSortingKey();
-    //     column_names_to_read.insert(column_names_to_read.end(), add_columns.begin(), add_columns.end());
+    if (final)
+    {
+        /// Add columns needed to calculate the sorting expression and the sign.
+        std::vector<String> add_columns = metadata_for_reading->getColumnsRequiredForSortingKey();
+        column_names_to_read.insert(column_names_to_read.end(), add_columns.begin(), add_columns.end());
 
-    //     if (!data.merging_params.sign_column.empty())
-    //         column_names_to_read.push_back(data.merging_params.sign_column);
-    //     if (!data.merging_params.version_column.empty())
-    //         column_names_to_read.push_back(data.merging_params.version_column);
+        if (!data.merging_params.sign_column.empty())
+            column_names_to_read.push_back(data.merging_params.sign_column);
+        if (!data.merging_params.version_column.empty())
+            column_names_to_read.push_back(data.merging_params.version_column);
 
-    //     ::sort(column_names_to_read.begin(), column_names_to_read.end());
-    //     column_names_to_read.erase(std::unique(column_names_to_read.begin(), column_names_to_read.end()), column_names_to_read.end());
+        ::sort(column_names_to_read.begin(), column_names_to_read.end());
+        column_names_to_read.erase(std::unique(column_names_to_read.begin(), column_names_to_read.end()), column_names_to_read.end());
 
-    //     pipe = spreadMarkRangesAmongStreamsFinal(
-    //         std::move(result.parts_with_ranges),
-    //         column_names_to_read,
-    //         result_projection);
-    // }
-    // else if (input_order_info)
-    // {
-    //     pipe = spreadMarkRangesAmongStreamsWithOrder(
-    //         std::move(result.parts_with_ranges),
-    //         column_names_to_read,
-    //         result_projection,
-    //         input_order_info);
-    // }
-    // else
-    // {
+        pipe = spreadMarkRangesAmongStreamsFinal(
+            std::move(result.parts_with_ranges),
+            column_names_to_read,
+            result_projection);
+    }
+    else if (input_order_info && !all_ranges_callback)
+    {
+        pipe = spreadMarkRangesAmongStreamsWithOrder(
+            std::move(result.parts_with_ranges),
+            column_names_to_read,
+            result_projection,
+            input_order_info);
+    }
+    else
+    {
         pipe = spreadMarkRangesAmongStreams(
             std::move(result.parts_with_ranges),
             column_names_to_read);
-    // }
+    }
 
     for (const auto & processor : pipe.getProcessors())
         processor->setStorageLimits(query_info.storage_limits);

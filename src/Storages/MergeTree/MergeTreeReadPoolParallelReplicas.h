@@ -7,6 +7,7 @@
 #include <Storages/MergeTree/MergeTreeReadPool.h>
 #include <Storages/MergeTree/RangesInDataPart.h>
 #include <Storages/SelectQueryInfo.h>
+#include "Storages/MergeTree/RequestResponse.h"
 #include "Storages/StorageSnapshot.h"
 
 #include <mutex>
@@ -42,6 +43,8 @@ public:
     {
         fillPerPartInfo(parts_ranges);
     }
+
+    ~MergeTreeReadPoolParallelReplicas();
 
     /// Sends all the data about selected parts to the initiator
     void initialize();
@@ -85,6 +88,14 @@ private:
 
     [[maybe_unused]] size_t threads;
     [[maybe_unused]] size_t min_marks_for_concurrent_read;
+
+    bool no_more_tasks_available{false};
+
+    std::vector<size_t> times_to_respond;
+
+    std::shared_future<std::optional<ParallelReadResponse>> future_response;
+
+    void sendRequest();
 
     mutable std::mutex mutex;
 
