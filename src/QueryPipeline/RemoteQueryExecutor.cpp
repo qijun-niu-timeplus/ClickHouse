@@ -216,14 +216,22 @@ static Block adaptBlockStructure(const Block & block, const Block & header)
 
 void RemoteQueryExecutor::sendQuery(ClientInfo::QueryKind query_kind)
 {
+    LOG_TRACE(&Poco::Logger::get("Anime"), "Sending query");
+
+
     if (sent_query)
         return;
+
+    LOG_TRACE(&Poco::Logger::get("Anime"), "Creating connections");
 
     connections = create_connections();
 
     const auto & settings = context->getSettingsRef();
     if (settings.skip_unavailable_shards && 0 == connections->size())
         return;
+
+
+    LOG_TRACE(&Poco::Logger::get("Anime"), "Here");
 
     /// Query cannot be canceled in the middle of the send query,
     /// since there are multiple packets:
@@ -261,6 +269,9 @@ void RemoteQueryExecutor::sendQuery(ClientInfo::QueryKind query_kind)
 
 Block RemoteQueryExecutor::read()
 {
+
+    LOG_FATAL(&Poco::Logger::get("Anime"), "RemoteQueryExecutor::read() ");
+
     if (!sent_query)
     {
         sendQuery();
@@ -286,6 +297,9 @@ Block RemoteQueryExecutor::read()
 
 std::variant<Block, int> RemoteQueryExecutor::read(std::unique_ptr<ReadContext> & read_context [[maybe_unused]])
 {
+
+    LOG_FATAL(&Poco::Logger::get("Anime"), "RemoteQueryExecutor::read() ");
+
 
 #if defined(OS_LINUX)
     if (!sent_query)

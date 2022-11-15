@@ -267,6 +267,9 @@ void ReadFromParallelRemoteReplicasStep::initializePipeline(QueryPipelineBuilder
 {
     Pipes pipes;
 
+    std::cout << "ReadFromParallelRemoteReplicasStep::initializePipeline" << std::endl;
+    std::cout << StackTrace().toString() << std::endl;
+
     const Settings & current_settings = context->getSettingsRef();
     auto timeouts = ConnectionTimeouts::getTCPTimeoutsWithFailover(current_settings);
 
@@ -286,6 +289,8 @@ void ReadFromParallelRemoteReplicasStep::initializePipeline(QueryPipelineBuilder
 
         auto pool_with_failover =  std::make_shared<ConnectionPoolWithFailover>(
             ConnectionPoolPtrs{pool}, current_settings.load_balancing);
+
+        std::cout << "Adding pipe for single replica" << std::endl;
 
         addPipeForSingeReplica(pipes, pool_with_failover, replica_info);
     }
@@ -325,8 +330,8 @@ void ReadFromParallelRemoteReplicasStep::addPipeForSingeReplica(Pipes & pipes, s
 
     remote_query_executor->setLogger(log);
 
-    if (!table_func_ptr)
-        remote_query_executor->setMainTable(main_table);
+    // if (!table_func_ptr)
+    //     remote_query_executor->setMainTable(main_table);
 
     pipes.emplace_back(createRemoteSourcePipe(remote_query_executor, add_agg_info, add_totals, add_extremes, async_read));
     addConvertingActions(pipes.back(), output_stream->header);

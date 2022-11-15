@@ -14,6 +14,8 @@
 #include <Interpreters/MutationsInterpreter.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/TransactionLog.h>
+#include <Interpreters/ClusterProxy/executeQuery.h>
+#include <Interpreters/ClusterProxy/SelectStreamFactory.h>
 #include <IO/copyData.h>
 #include <Parsers/ASTCheckQuery.h>
 #include <Parsers/ASTFunction.h>
@@ -229,9 +231,42 @@ void StorageMergeTree::read(
     if (enable_parallel_reading)
         LOG_TRACE(log, "Parallel reading from replicas enabled {}", enable_parallel_reading);
 
-    if (auto plan = reader.read(
-        column_names, storage_snapshot, query_info, local_context, max_block_size, num_streams, processed_stage, nullptr, enable_parallel_reading))
-        query_plan = std::move(*plan);
+
+    auto settings = local_context->getSettingsRef();
+    bool parallel_replicas = settings.max_parallel_replicas > 1 && settings.allow_experimental_parallel_reading_from_replicas && !settings.use_hedged_requests && !local_context->getClientInfo().collaborate_with_initiator;
+
+    if (parallel_replicas)
+    {
+        auto cluster = local_context->getCluster(local_context->getSettingsRef().cluster_for_parallel_replicas);
+
+        Block header =
+            InterpreterSelectQuery(query_info.query, local_context, SelectQueryOptions(processed_stage).analyze()).getSampleBlock();
+
+
+        std::cout << "StorageMergeTree::read()" << std::endl;
+        std::cout << header.dumpStructure() << std::endl;
+        std::cout << QueryProcessingStage::toString(processed_stage) << std::endl;
+
+        ClusterProxy::SelectStreamFactory select_stream_factory =
+            ClusterProxy::SelectStreamFactory(
+                header,
+                {},
+                storage_snapshot,
+                processed_stage);
+
+        ClusterProxy::executeQueryWithParallelReplicas(
+            query_plan, getStorageID(), /*remove_table_function_ptr*/ nullptr,
+            select_stream_factory, query_info.query,
+            local_context, query_info,
+            nullptr, "",
+            cluster);
+    }
+    else
+    {
+        if (auto plan = reader.read(
+            column_names, storage_snapshot, query_info, local_context, max_block_size, num_streams, processed_stage, nullptr, enable_parallel_reading))
+            query_plan = std::move(*plan);
+    }
 
     /// Now, copy of parts that is required for the query, stored in the processors,
     /// while snapshot_data.parts includes all parts, even one that had been filtered out with partition pruning,

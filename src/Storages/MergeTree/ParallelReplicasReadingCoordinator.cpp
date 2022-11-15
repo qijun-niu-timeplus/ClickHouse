@@ -48,7 +48,10 @@ public:
         , announcements(replicas_count_)
         , reading_state(replicas_count_)
         , stats(replicas_count_)
-    {}
+    {
+        LOG_TRACE(&Poco::Logger::get("Anime"), "Constructed a coordinator");
+
+    }
 
     ~DefaultCoordinator() override;
 

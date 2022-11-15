@@ -1860,6 +1860,7 @@ void InterpreterSelectQuery::setMergeTreeReadTaskCallbackAndClientInfo(MergeTree
 
 void InterpreterSelectQuery::setProperClientInfo(size_t replica_num, size_t replica_count)
 {
+    context->getClientInfo().collaborate_with_initiator = true;
     context->getClientInfo().query_kind = ClientInfo::QueryKind::SECONDARY_QUERY;
     context->getClientInfo().count_participating_replicas = replica_count;
     context->getClientInfo().number_of_current_replica = replica_num;

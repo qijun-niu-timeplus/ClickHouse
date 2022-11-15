@@ -48,29 +48,38 @@ std::unique_ptr<QueryPlan> createLocalPlan(
     checkStackSize();
 
     auto query_plan = std::make_unique<QueryPlan>();
+
+    auto new_context = Context::createCopy(context);
+
+    new_context->getClientInfo().collaborate_with_initiator = true;
+    new_context->getClientInfo().query_kind = ClientInfo::QueryKind::SECONDARY_QUERY;
+    new_context->getClientInfo().count_participating_replicas = replica_count;
+    new_context->getClientInfo().number_of_current_replica = replica_num;
+    new_context->setMergeTreeAllRangesCallback([coordinator](InitialAllRangesAnnouncement announcement)
+    {
+        coordinator->handleInitialAllRangesAnnouncement(announcement);
+    });
+    new_context->setMergeTreeReadTaskCallback([coordinator](ParallelReadRequest request) -> std::optional<ParallelReadResponse>
+    {
+        return coordinator->handleRequest(request);
+    });
+
     /// Do not apply AST optimizations, because query
     /// is already optimized and some optimizations
     /// can be applied only for non-distributed tables
     /// and we can produce query, inconsistent with remote plans.
     auto interpreter = InterpreterSelectQuery(
-        query_ast, context,
+        query_ast, new_context,
         SelectQueryOptions(processed_stage)
             .setShardInfo(shard_num, shard_count)
             .ignoreASTOptimizations());
 
-    interpreter.setProperClientInfo(replica_num, replica_count);
-    if (coordinator)
-    {
-        interpreter.setMergeTreeReadTaskCallbackAndClientInfo(
-        [coordinator](InitialAllRangesAnnouncement announcement)
-        {
-            coordinator->handleInitialAllRangesAnnouncement(announcement);
-        },
-        [coordinator](ParallelReadRequest request) -> std::optional<ParallelReadResponse>
-        {
-            return coordinator->handleRequest(request);
-        });
-    }
+    // LOG_TRACE(&Poco::Logger::get("Anime"), "createLocalPlan {}", interpreter.getSampleBlock().dumpStructure());
+    // WriteBufferFromOwnString ss;
+    // query_plan->explainPlan(ss, QueryPlan::ExplainPlanOptions{true, true, true, true, true});
+    // LOG_TRACE(&Poco::Logger::get("Anime"), "QueryPlan: {}", ss.str());
+
+    LOG_TRACE(&Poco::Logger::get("Anime"), "Processed stage {}, Query: {}", QueryProcessingStage::toString(processed_stage), query_ast->formatForErrorMessage());
 
     interpreter.buildQueryPlan(*query_plan);
     addConvertingActions(*query_plan, header);

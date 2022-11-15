@@ -261,9 +261,9 @@ void executeQueryWithParallelReplicas(
 
 
     std::vector<QueryPlanPtr> plans;
-    size_t shards = query_info.getCluster()->getShardCount();
+    size_t shards = not_optimized_cluster->getShardCount();
 
-    for (const auto & shard_info : query_info.getCluster()->getShardsInfo())
+    for (const auto & shard_info : not_optimized_cluster->getShardsInfo())
     {
         ASTPtr query_ast_for_shard;
         if (query_info.optimized_cluster && settings.optimize_skip_unused_shards_rewrite_in && shards > 1)
