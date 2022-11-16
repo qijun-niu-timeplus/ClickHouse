@@ -270,7 +270,7 @@ void RemoteQueryExecutor::sendQuery(ClientInfo::QueryKind query_kind)
 Block RemoteQueryExecutor::read()
 {
 
-    LOG_FATAL(&Poco::Logger::get("Anime"), "RemoteQueryExecutor::read() ");
+    LOG_TRACE(&Poco::Logger::get("Anime"), "RemoteQueryExecutor::read() ");
 
     if (!sent_query)
     {
@@ -298,7 +298,7 @@ Block RemoteQueryExecutor::read()
 std::variant<Block, int> RemoteQueryExecutor::read(std::unique_ptr<ReadContext> & read_context [[maybe_unused]])
 {
 
-    LOG_FATAL(&Poco::Logger::get("Anime"), "RemoteQueryExecutor::read() ");
+    LOG_TRACE(&Poco::Logger::get("Anime"), "RemoteQueryExecutor::read() ");
 
 
 #if defined(OS_LINUX)

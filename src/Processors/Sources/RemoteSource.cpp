@@ -37,14 +37,14 @@ ISource::Status RemoteSource::prepare()
     /// Check if query was cancelled before returning Async status. Otherwise it may lead to infinite loop.
     if (was_query_canceled)
     {
-        LOG_FATAL(&Poco::Logger::get("Anime"), "RemoteSource::prepare will return finish");
+        LOG_TRACE(&Poco::Logger::get("Anime"), "RemoteSource::prepare will return finish");
         getPort().finish();
         return Status::Finished;
     }
 
     if (is_async_state)
     {
-        LOG_FATAL(&Poco::Logger::get("Anime"), "RemoteSource::prepare will return Async");
+        LOG_TRACE(&Poco::Logger::get("Anime"), "RemoteSource::prepare will return Async");
         return Status::Async;
     }
 
@@ -54,18 +54,18 @@ ISource::Status RemoteSource::prepare()
     /// RemoteQueryExecutor it should be finished explicitly.
     if (status == Status::Finished)
     {
-        LOG_FATAL(&Poco::Logger::get("Anime"), "RemoteSource::prepare will finish query executor");
+        LOG_TRACE(&Poco::Logger::get("Anime"), "RemoteSource::prepare will finish query executor");
         query_executor->finish(&read_context);
         is_async_state = false;
     }
 
-    LOG_FATAL(&Poco::Logger::get("Anime"), "RemoteSource::prepare will return status {}", statusToName(status));
+    LOG_TRACE(&Poco::Logger::get("Anime"), "RemoteSource::prepare will return status {}", statusToName(status));
     return status;
 }
 
 std::optional<Chunk> RemoteSource::tryGenerate()
 {
-    LOG_FATAL(&Poco::Logger::get("Anime"), "RemoteSource::tryGenerate");
+    LOG_TRACE(&Poco::Logger::get("Anime"), "RemoteSource::tryGenerate");
 
     /// onCancel() will do the cancel if the query was sent.
     if (was_query_canceled)
@@ -134,7 +134,7 @@ std::optional<Chunk> RemoteSource::tryGenerate()
 
 void RemoteSource::onCancel()
 {
-    LOG_FATAL(&Poco::Logger::get("Anime"), "RemoteSource::tryGenerate");
+    LOG_TRACE(&Poco::Logger::get("Anime"), "RemoteSource::tryGenerate");
 
     was_query_canceled = true;
     query_executor->cancel(&read_context);

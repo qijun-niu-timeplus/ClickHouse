@@ -232,6 +232,9 @@ void StorageMergeTree::read(
         LOG_TRACE(log, "Parallel reading from replicas enabled {}", enable_parallel_reading);
 
 
+    std::cout << "StorageMergeTree::read() " << num_streams << std::endl;
+
+
     auto settings = local_context->getSettingsRef();
     bool parallel_replicas = settings.max_parallel_replicas > 1 && settings.allow_experimental_parallel_reading_from_replicas && !settings.use_hedged_requests && !local_context->getClientInfo().collaborate_with_initiator;
 

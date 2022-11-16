@@ -58,6 +58,8 @@ public:
 
     bool supportsTransactions() const override { return true; }
 
+    // bool isRemote() const override { return true; }
+
     void read(
         QueryPlan & query_plan,
         const Names & column_names,
