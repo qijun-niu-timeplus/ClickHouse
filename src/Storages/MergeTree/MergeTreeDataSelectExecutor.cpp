@@ -1265,6 +1265,7 @@ static void selectColumnNames(
         }
         else if (name == "_part_offset")
         {
+//
             virt_column_names.push_back(name);
         }
         else if (name == LightweightDeleteDescription::FILTER_COLUMN.name)
