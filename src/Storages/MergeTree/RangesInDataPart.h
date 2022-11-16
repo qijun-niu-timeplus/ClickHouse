@@ -5,11 +5,15 @@
 #include <IO/WriteBuffer.h>
 #include <IO/ReadBuffer.h>
 #include <Storages/MergeTree/MarkRange.h>
-#include <Storages/MergeTree/MergeTreeData.h>
+#include "Storages/MergeTree/MergeTreePartInfo.h"
+// #include <Storages/MergeTree/MergeTreeData.h>
 
 
 namespace DB
 {
+
+class IMergeTreeDataPart;
+using DataPartPtr = std::shared_ptr<const IMergeTreeDataPart>;
 
 /// The only purpose of this struct is that serialize and deserialize methods
 /// they look natural here because we can fully serialize and then deserialize original DataPart class.
@@ -34,14 +38,14 @@ struct RangesInDataPartsDescription: public std::deque<RangesInDataPartDescripti
 
 struct RangesInDataPart
 {
-    MergeTreeData::DataPartPtr data_part;
+    DataPartPtr data_part;
     size_t part_index_in_query;
     MarkRanges ranges;
 
     RangesInDataPart() = default;
 
     RangesInDataPart(
-        const MergeTreeData::DataPartPtr & data_part_,
+        const DataPartPtr & data_part_,
         const size_t part_index_in_query_,
         const MarkRanges & ranges_ = MarkRanges{})
         : data_part{data_part_}

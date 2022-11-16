@@ -1,5 +1,11 @@
 #include <Storages/MergeTree/RangesInDataPart.h>
+
+#include <Storages/MergeTree/IMergeTreeDataPart.h>
+
 #include "IO/VarInt.h"
+
+#include <IO/ReadHelpers.h>
+#include <IO/WriteHelpers.h>
 
 
 namespace DB

@@ -1,10 +1,5 @@
 #pragma once
 
-#include <base/types.h>
-#include <Common/isLocalAddress.h>
-#include <Common/MultiVersion.h>
-#include <Common/OpenTelemetryTraceContext.h>
-#include <Common/RemoteHostFilter.h>
 #include <Core/Block.h>
 #include <Core/NamesAndTypes.h>
 #include <Core/Settings.h>
@@ -15,9 +10,14 @@
 #include <Interpreters/MergeTreeTransactionHolder.h>
 #include <Parsers/IAST_fwd.h>
 #include <Parsers/ASTSelectQuery.h>
+#include <Storages/IStorage_fwd.h>
+#include <Common/MultiVersion.h>
+#include <Common/OpenTelemetryTraceContext.h>
+#include <Common/RemoteHostFilter.h>
+#include <Common/isLocalAddress.h>
+#include <base/types.h>
 #include <Storages/MergeTree/ParallelReplicasReadingCoordinator.h>
 #include <Storages/ColumnsDescription.h>
-#include <Storages/IStorage_fwd.h>
 
 #include "config.h"
 

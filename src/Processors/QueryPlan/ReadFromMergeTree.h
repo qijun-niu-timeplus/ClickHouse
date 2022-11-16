@@ -3,6 +3,7 @@
 #include <Storages/MergeTree/RangesInDataPart.h>
 #include <Storages/MergeTree/RequestResponse.h>
 #include <Storages/SelectQueryInfo.h>
+#include <Storages/MergeTree/MergeTreeData.h>
 
 namespace DB
 {
