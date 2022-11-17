@@ -58,7 +58,7 @@ public:
 
     bool supportsTransactions() const override { return true; }
 
-    // bool isRemote() const override { return true; }
+    bool isRemote([[ maybe_unused ]] ContextPtr local_context) const override { return local_context->getSettingsRef().allow_experimental_parallel_reading_from_replicas && !local_context->getClientInfo().collaborate_with_initiator; }
 
     void read(
         QueryPlan & query_plan,
