@@ -199,36 +199,6 @@ int mainEntryClickHouseServer(int argc, char ** argv)
 namespace
 {
 
-void setupTmpPath(Poco::Logger * log, const std::string & path)
-try
-{
-    LOG_DEBUG(log, "Setting up {} to store temporary data in it", path);
-
-    fs::create_directories(path);
-
-    /// Clearing old temporary files.
-    fs::directory_iterator dir_end;
-    for (fs::directory_iterator it(path); it != dir_end; ++it)
-    {
-        if (it->is_regular_file() && startsWith(it->path().filename(), "tmp"))
-        {
-            LOG_DEBUG(log, "Removing old temporary file {}", it->path().string());
-            fs::remove(it->path());
-        }
-        else
-            LOG_DEBUG(log, "Found unknown file in temporary path {}", it->path().string());
-    }
-}
-catch (...)
-{
-    DB::tryLogCurrentException(
-        log,
-        fmt::format(
-            "Caught exception while setup temporary path: {}. It is ok to skip this exception as cleaning old temporary files is not "
-            "necessary",
-            path));
-}
-
 size_t waitServersToFinish(std::vector<DB::ProtocolServerAdapter> & servers, size_t seconds_to_wait)
 {
     const size_t sleep_max_ms = 1000 * seconds_to_wait;
@@ -976,13 +946,21 @@ int Server::main(const std::vector<std::string> & /*args*/)
     LOG_TRACE(log, "Initialized DateLUT with time zone '{}'.", DateLUT::instance().getTimeZone());
 
     /// Storage with temporary data for processing of heavy queries.
+    if (auto temporary_policy = config().getString("tmp_policy", ""); !temporary_policy.empty())
+    {
+        size_t max_size = config().getUInt64("max_temporary_data_on_disk_size", 0);
+        global_context->setTemporaryStoragePolicy(temporary_policy, max_size);
+    }
+    else if (auto temporary_cache = config().getString("tmp_cache", ""); !temporary_cache.empty())
+    {
+        size_t max_size = config().getUInt64("max_temporary_data_on_disk_size", 0);
+        global_context->setTemporaryStorageInCache(temporary_cache, max_size);
+    }
+    else
     {
         std::string temporary_path = config().getString("tmp_path", path / "tmp/");
-        std::string temporary_policy = config().getString("tmp_policy", "");
         size_t max_size = config().getUInt64("max_temporary_data_on_disk_size", 0);
-        const VolumePtr & volume = global_context->setTemporaryStorage(temporary_path, temporary_policy, max_size);
-        for (const DiskPtr & disk : volume->getDisks())
-            setupTmpPath(log, disk->getPath());
+        global_context->setTemporaryStoragePath(temporary_path, max_size);
     }
 
     /** Directory with 'flags': files indicating temporary settings for the server set by system administrator.
@@ -1378,7 +1356,7 @@ int Server::main(const std::vector<std::string> & /*args*/)
     }
     catch (...)
     {
-        tryLogCurrentException(log);
+        tryLogCurrentException(log, "Caught exception while setting up access control.");
         throw;
     }
 
