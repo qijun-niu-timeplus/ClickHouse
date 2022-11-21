@@ -39,6 +39,22 @@ public:
 };
 
 
+struct Part
+{
+    mutable RangesInDataPartDescription description;
+    // FIXME: This is needed to put this struct in set
+    // and modify through iterator
+    mutable std::set<size_t> replicas;
+
+    bool reading_started{false};
+
+    bool operator<(const Part & rhs) const { return description.info < rhs.description.info; }
+};
+
+using Parts = std::set<Part>;
+using PartRefs = std::deque<Parts::iterator>;
+
+
 class DefaultCoordinator : public ParallelReplicasReadingCoordinator::ImplInterface
 {
 public:
@@ -70,21 +86,6 @@ public:
     size_t replicas_count{0};
     size_t sent_initial_requests{0};
     std::vector<InitialAllRangesAnnouncement> announcements;
-
-    struct Part
-    {
-        mutable RangesInDataPartDescription description;
-        // FIXME: This is needed to put this struct in set
-        // and modify through iterator
-        mutable std::set<size_t> replicas;
-
-        bool reading_started{false};
-
-        bool operator<(const Part & rhs) const { return description.info < rhs.description.info; }
-    };
-
-    using Parts = std::set<Part>;
-    using PartRefs = std::deque<Parts::iterator>;
 
     Parts all_parts_to_read;
     /// Contains only parts which we haven't started to read from
@@ -119,7 +120,7 @@ public:
         return ConsistentHashing(hash.get64(), replicas_count);
     }
 
-    static void selectPartsAndRanges(const PartRefs & container, size_t replica_num, size_t min_number_of_marks, size_t & current_mark_size, ParallelReadResponse & response);
+    void selectPartsAndRanges(const PartRefs & container, size_t replica_num, size_t min_number_of_marks, size_t & current_mark_size, ParallelReadResponse & response) const;
 };
 
 DefaultCoordinator::~DefaultCoordinator()
@@ -139,14 +140,22 @@ void DefaultCoordinator::updateReadingState(const InitialAllRangesAnnouncement &
     /// To get rid of duplicates
     for (const auto & part: announcement.description)
     {
-        auto it = std::find_if(all_parts_to_read.begin(), all_parts_to_read.end(),
+        auto covering_or_the_same_it = std::find_if(all_parts_to_read.begin(), all_parts_to_read.end(),
+            [&part] (const Part & other) { return other.description.info.contains(part.info) ||  part.info.contains(other.description.info); });
+
+        auto the_same_it = std::find_if(all_parts_to_read.begin(), all_parts_to_read.end(),
             [&part] (const Part & other) { return other.description.info == part.info; });
 
-        if (it != all_parts_to_read.end())
+        /// We have the same part - add the info about presence on current replica to it
+        if (the_same_it != all_parts_to_read.end())
         {
-            it->replicas.insert(announcement.replica_num);
+            the_same_it->replicas.insert(announcement.replica_num);
             continue;
         }
+
+        /// It is covering part or we have covering - skip it
+        if (covering_or_the_same_it != all_parts_to_read.end())
+            continue;
 
         auto new_part = Part{
             .description = part,
@@ -218,28 +227,25 @@ void DefaultCoordinator::handleInitialAllRangesAnnouncement(InitialAllRangesAnno
         finalizeReadingState();
 }
 
-void DefaultCoordinator::selectPartsAndRanges(const PartRefs & container, size_t replica_num, size_t min_number_of_marks, size_t & current_mark_size, ParallelReadResponse & response)
+void DefaultCoordinator::selectPartsAndRanges(const PartRefs & container, size_t replica_num, size_t min_number_of_marks, size_t & current_mark_size, ParallelReadResponse & response) const
 {
-    // std::lock_guard lock(mutex);
-    // std::lock_guard lock(reading_state[replica_num].mutex);
-
     for (const auto & part : container)
     {
         if (std::find(part->replicas.begin(), part->replicas.end(), replica_num) == part->replicas.end())
         {
-            LOG_TRACE(&Poco::Logger::get("Anime"), "Not found part {} on replica {}", part->description.info.getPartName(), replica_num);
+            LOG_TEST(log, "Not found part {} on replica {}", part->description.info.getPartName(), replica_num);
             continue;
         }
 
         if (current_mark_size >= min_number_of_marks)
         {
-            LOG_TRACE(&Poco::Logger::get("Anime"), "Current mark size {} is bigger than min_number_marks {}", current_mark_size, min_number_of_marks);
+            LOG_TEST(log, "Current mark size {} is bigger than min_number_marks {}", current_mark_size, min_number_of_marks);
             continue;
         }
 
         if (part->description.ranges.empty())
         {
-            LOG_TRACE(&Poco::Logger::get("Anime"), "Part {} is already empty in reading state", part->description.info.getPartName());
+            LOG_TEST(log, "Part {} is already empty in reading state", part->description.info.getPartName());
             continue;
         }
 
@@ -276,7 +282,7 @@ ParallelReadResponse DefaultCoordinator::handleRequest(ParallelReadRequest reque
 {
     std::lock_guard lock(mutex);
 
-    LOG_TRACE(&Poco::Logger::get("Anime"), "Handling request from replica {}, minimal marks size is {}", request.replica_num, request.min_number_of_marks );
+    LOG_TRACE(log, "Handling request from replica {}, minimal marks size is {}", request.replica_num, request.min_number_of_marks );
 
     size_t current_mark_size = 0;
     ParallelReadResponse response;
@@ -315,10 +321,127 @@ ParallelReadResponse DefaultCoordinator::handleRequest(ParallelReadRequest reque
     WriteBufferFromOwnString ss;
     response.describe(ss);
 
-    LOG_TRACE(&Poco::Logger::get("Anime"), "Going to respond to replica {} with {}", request.replica_num, ss.str());
+    LOG_TRACE(log, "Going to respond to replica {} with {}", request.replica_num, ss.str());
 
     return response;
 }
+
+
+
+class InOrderCoordinator : public ParallelReplicasReadingCoordinator::ImplInterface
+{
+public:
+    explicit InOrderCoordinator( [[ maybe_unused ]] size_t replicas_count_) {}
+    ~InOrderCoordinator() override = default;
+
+    ParallelReadResponse handleRequest([[ maybe_unused ]]  ParallelReadRequest request) override;
+    void handleInitialAllRangesAnnouncement([[ maybe_unused ]]  InitialAllRangesAnnouncement announcement) override;
+
+    Parts all_parts_to_read;
+
+    std::mutex mutex;
+};
+
+
+void InOrderCoordinator::handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement announcement)
+{
+    std::lock_guard lock(mutex);
+
+    /// To get rid of duplicates
+    for (const auto & part: announcement.description)
+    {
+        auto covering_or_the_same_it = std::find_if(all_parts_to_read.begin(), all_parts_to_read.end(),
+            [&part] (const Part & other) { return other.description.info.contains(part.info) ||  part.info.contains(other.description.info); });
+
+        auto the_same_it = std::find_if(all_parts_to_read.begin(), all_parts_to_read.end(),
+            [&part] (const Part & other) { return other.description.info == part.info; });
+
+        /// We have the same part - add the info about presence on current replica to it
+        if (the_same_it != all_parts_to_read.end())
+        {
+            the_same_it->replicas.insert(announcement.replica_num);
+            continue;
+        }
+
+        /// It is covering part or we have covering - skip it
+        if (covering_or_the_same_it != all_parts_to_read.end())
+            continue;
+
+        auto new_part = Part{
+            .description = part,
+            .replicas = {announcement.replica_num}
+        };
+
+        all_parts_to_read.insert(new_part);
+    }
+}
+
+
+
+ParallelReadResponse InOrderCoordinator::handleRequest(ParallelReadRequest request)
+{
+    std::lock_guard lock(mutex);
+
+    if (request.mode != CoordinationMode::WithOrder)
+        throw Exception(ErrorCodes::LOGICAL_ERROR,
+            "Replica {} decided to read in {} mode, not in InOrder. This is a bug",
+            request.replica_num, magic_enum::enum_name(request.mode));
+
+    ParallelReadResponse response;
+    response.description = request.description;
+    size_t overall_number_of_marks = 0;
+
+    for (auto & part : response.description)
+    {
+        auto global_part_it = std::find_if(all_parts_to_read.begin(), all_parts_to_read.end(),
+            [&part] (const Part & other) { return other.description.info == part.info; });
+
+        if (global_part_it == all_parts_to_read.end())
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Part {} is not found in global state. This is a bug", part.info.getPartName());
+
+        if (!global_part_it->replicas.contains(request.replica_num))
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Part {} doesn't exist on replica {} according to the global state", part.info.getPartName(), request.replica_num);
+
+        auto current_ranges = HalfIntervals::initializeFromMarkRanges(global_part_it->description.ranges);
+        auto allowed_ranges = current_ranges.intersect(HalfIntervals::initializeFromMarkRanges(part.ranges));
+        auto new_global_ranges = HalfIntervals::initializeFromMarkRanges(global_part_it->description.ranges).intersect(allowed_ranges.negate());
+        global_part_it->description.ranges = new_global_ranges.convertToMarkRangesFinal();
+
+        /// Now we can recommend to read more intervals
+        part.ranges = allowed_ranges.convertToMarkRangesFinal();
+        auto current_mark_size = part.ranges.getNumberOfMarks();
+
+        while (!global_part_it->description.ranges.empty() && current_mark_size < request.min_number_of_marks)
+        {
+            auto range = global_part_it->description.ranges.front();
+
+            if (range.getNumberOfMarks() > request.min_number_of_marks)
+            {
+                auto new_range = range;
+                range.begin += request.min_number_of_marks;
+                new_range.end = new_range.begin + request.min_number_of_marks;
+
+                global_part_it->description.ranges.front() = range;
+
+                response.description.back().ranges.emplace_back(new_range);
+                current_mark_size += new_range.getNumberOfMarks();
+                continue;
+            }
+
+            current_mark_size += global_part_it->description.ranges.front().getNumberOfMarks();
+            response.description.back().ranges.emplace_back(global_part_it->description.ranges.front());
+            global_part_it->description.ranges.pop_front();
+        }
+
+        overall_number_of_marks += current_mark_size;
+    }
+
+    if (!overall_number_of_marks)
+        response.finish = true;
+
+    return response;
+}
+
 
 void ParallelReplicasReadingCoordinator::handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement announcement)
 {
@@ -331,9 +454,16 @@ ParallelReadResponse ParallelReplicasReadingCoordinator::handleRequest(ParallelR
     return pimpl->handleRequest(std::move(request));
 }
 
-ParallelReplicasReadingCoordinator::ParallelReplicasReadingCoordinator(size_t replicas_count_)
+ParallelReplicasReadingCoordinator::ParallelReplicasReadingCoordinator(CoordinationMode mode, size_t replicas_count_)
 {
-    pimpl = std::make_unique<DefaultCoordinator>(replicas_count_);
+    switch (mode)
+    {
+        case CoordinationMode::Default:
+            pimpl = std::make_unique<DefaultCoordinator>(replicas_count_);
+            return;
+        case CoordinationMode::WithOrder:
+            pimpl = std::make_unique<InOrderCoordinator>(replicas_count_);
+    }
 }
 
 ParallelReplicasReadingCoordinator::~ParallelReplicasReadingCoordinator() = default;

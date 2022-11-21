@@ -15,6 +15,13 @@
 namespace DB
 {
 
+enum class CoordinationMode
+{
+    Default,
+    /// For reading in order
+    WithOrder
+};
+
 /// Represents a segment [left; right]
 struct PartBlockRange
 {
@@ -29,8 +36,12 @@ struct PartBlockRange
 
 struct ParallelReadRequest
 {
+    CoordinationMode mode;
     size_t replica_num;
     size_t min_number_of_marks;
+
+    /// Extension for ordered mode
+    RangesInDataPartsDescription description;
 
     void serialize(WriteBuffer & out) const;
     void describe(WriteBuffer & out) const;

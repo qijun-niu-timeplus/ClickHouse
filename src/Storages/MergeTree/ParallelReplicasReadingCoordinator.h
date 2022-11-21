@@ -11,7 +11,7 @@ class ParallelReplicasReadingCoordinator
 public:
     class ImplInterface;
 
-    explicit ParallelReplicasReadingCoordinator(size_t replicas_count_);
+    explicit ParallelReplicasReadingCoordinator(CoordinationMode mode, size_t replicas_count_);
     ~ParallelReplicasReadingCoordinator();
 
     void handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement);

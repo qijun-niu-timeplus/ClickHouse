@@ -84,7 +84,7 @@ public:
         const ThrottlerPtr & throttler,
         ContextPtr context,
         UInt32 shard_count,
-        const std::shared_ptr<const StorageLimitsList> & storage_limits
+        const SelectQueryInfo & query_info
     );
 
 private:

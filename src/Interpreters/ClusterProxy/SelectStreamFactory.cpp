@@ -182,7 +182,7 @@ SelectStreamFactory::ShardPlans SelectStreamFactory::createForShardWithParallelR
     const ThrottlerPtr & throttler,
     ContextPtr context,
     UInt32 shard_count,
-    const std::shared_ptr<const StorageLimitsList> & storage_limits)
+    const SelectQueryInfo & query_info)
 {
     SelectStreamFactory::ShardPlans result;
 
@@ -216,7 +216,15 @@ SelectStreamFactory::ShardPlans SelectStreamFactory::createForShardWithParallelR
     if (read_from_local)
         ++all_replicas_count;
 
-    auto coordinator = std::make_shared<ParallelReplicasReadingCoordinator>(all_replicas_count);
+
+    CoordinationMode mode = CoordinationMode::Default;
+    if (query_info.input_order_info)
+    {
+        LOG_TRACE(&Poco::Logger::get("SelectStreamFactory"), "Will use coordinator with `InOrder` scheduling mode");
+        mode = CoordinationMode::WithOrder;
+    }
+
+    auto coordinator = std::make_shared<ParallelReplicasReadingCoordinator>(mode, all_replicas_count);
     auto remote_plan = std::make_unique<QueryPlan>();
 
     if (read_from_local)
@@ -254,7 +262,7 @@ SelectStreamFactory::ShardPlans SelectStreamFactory::createForShardWithParallelR
             std::move(scalars),
             std::move(external_tables),
             &Poco::Logger::get("ReadFromParallelRemoteReplicasStep"),
-            storage_limits);
+            query_info.storage_limits);
 
         remote_plan->addStep(std::move(read_from_remote));
         remote_plan->addInterpreterContext(context);

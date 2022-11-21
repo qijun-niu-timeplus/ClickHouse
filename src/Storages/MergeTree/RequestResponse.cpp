@@ -22,8 +22,10 @@ void ParallelReadRequest::serialize(WriteBuffer & out) const
     /// Must be the first
     writeIntBinary(version, out);
 
+    writeIntBinary(mode, out);
     writeIntBinary(replica_num, out);
     writeIntBinary(min_number_of_marks, out);
+    description.serialize(out);
 }
 
 
@@ -44,8 +46,10 @@ void ParallelReadRequest::deserialize(ReadBuffer & in)
             "from replicas differ. Got: {}, supported version: {}",
             version, DBMS_PARALLEL_REPLICAS_PROTOCOL_VERSION);
 
+    readIntBinary(version, in);
     readIntBinary(replica_num, in);
     readIntBinary(min_number_of_marks, in);
+    description.deserialize(in);
 }
 
 void ParallelReadResponse::serialize(WriteBuffer & out) const

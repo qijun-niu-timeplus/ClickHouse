@@ -4,6 +4,7 @@
 #include <Common/JSONBuilder.h>
 #include <Common/logger_useful.h>
 #include "Storages/MergeTree/MergeTreeParallelReplicasSelectProcessor.h"
+#include "Storages/MergeTree/RequestResponse.h"
 #include <Interpreters/Context.h>
 #include <Interpreters/ExpressionAnalyzer.h>
 #include <Interpreters/TreeRewriter.h>
@@ -487,6 +488,13 @@ Pipe ReadFromMergeTree::spreadMarkRangesAmongStreamsWithOrder(
     ActionsDAGPtr & out_projection,
     const InputOrderInfoPtr & input_order_info)
 {
+    /// Tell about all ranges
+    if (all_ranges_callback)
+        all_ranges_callback.value()(InitialAllRangesAnnouncement{
+            .description = parts_with_ranges.getDescriptions(),
+            .replica_num = context->getClientInfo().number_of_current_replica
+        });
+
     const auto & settings = context->getSettingsRef();
     const auto data_settings = data.getSettings();
 
@@ -1230,7 +1238,7 @@ void ReadFromMergeTree::initializePipeline(QueryPipelineBuilder & pipeline, cons
 
     Pipe pipe;
 
-    // const auto & input_order_info = query_info.getInputOrderInfo();
+    const auto & input_order_info = query_info.getInputOrderInfo();
 
     // if (final)
     // {
@@ -1251,20 +1259,20 @@ void ReadFromMergeTree::initializePipeline(QueryPipelineBuilder & pipeline, cons
     //         column_names_to_read,
     //         result_projection);
     // }
-    // else if (input_order_info && !all_ranges_callback)
-    // {
-    //     pipe = spreadMarkRangesAmongStreamsWithOrder(
-    //         std::move(result.parts_with_ranges),
-    //         column_names_to_read,
-    //         result_projection,
-    //         input_order_info);
-    // }
-    // else
-    // {
+    if (input_order_info)
+    {
+        pipe = spreadMarkRangesAmongStreamsWithOrder(
+            std::move(result.parts_with_ranges),
+            column_names_to_read,
+            result_projection,
+            input_order_info);
+    }
+    else
+    {
         pipe = spreadMarkRangesAmongStreams(
             std::move(result.parts_with_ranges),
             column_names_to_read);
-    // }
+    }
 
     for (const auto & processor : pipe.getProcessors())
         processor->setStorageLimits(query_info.storage_limits);

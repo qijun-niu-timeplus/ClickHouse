@@ -263,39 +263,41 @@ void executeQueryWithParallelReplicas(
     std::vector<QueryPlanPtr> plans;
     size_t shards = not_optimized_cluster->getShardCount();
 
-    for (const auto & shard_info : not_optimized_cluster->getShardsInfo())
+    if (not_optimized_cluster->getShardsInfo().size() != 1)
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "Cluster for parallel replicas should consist only from one shard");
+
+    auto shard_info = not_optimized_cluster->getShardsInfo().front();
+
+    ASTPtr query_ast_for_shard;
+    if (query_info.optimized_cluster && settings.optimize_skip_unused_shards_rewrite_in && shards > 1)
     {
-        ASTPtr query_ast_for_shard;
-        if (query_info.optimized_cluster && settings.optimize_skip_unused_shards_rewrite_in && shards > 1)
-        {
-            query_ast_for_shard = query_ast->clone();
+        query_ast_for_shard = query_ast->clone();
 
-            OptimizeShardingKeyRewriteInVisitor::Data visitor_data{
-                sharding_key_expr,
-                sharding_key_expr->getSampleBlock().getByPosition(0).type,
-                sharding_key_column_name,
-                shard_info,
-                not_optimized_cluster->getSlotToShard(),
-            };
-            OptimizeShardingKeyRewriteInVisitor visitor(visitor_data);
-            visitor.visit(query_ast_for_shard);
-        }
-        else
-            query_ast_for_shard = query_ast;
-
-        auto shard_plans = stream_factory.createForShardWithParallelReplicas(shard_info,
-            query_ast_for_shard, main_table, table_func_ptr, throttler, context,
-            static_cast<UInt32>(shards), query_info.storage_limits);
-
-        if (!shard_plans.local_plan && !shard_plans.remote_plan)
-            throw Exception(ErrorCodes::LOGICAL_ERROR, "No plans were generated for reading from shard. This is a bug");
-
-        if (shard_plans.local_plan)
-            plans.emplace_back(std::move(shard_plans.local_plan));
-
-        if (shard_plans.remote_plan)
-            plans.emplace_back(std::move(shard_plans.remote_plan));
+        OptimizeShardingKeyRewriteInVisitor::Data visitor_data{
+            sharding_key_expr,
+            sharding_key_expr->getSampleBlock().getByPosition(0).type,
+            sharding_key_column_name,
+            shard_info,
+            not_optimized_cluster->getSlotToShard(),
+        };
+        OptimizeShardingKeyRewriteInVisitor visitor(visitor_data);
+        visitor.visit(query_ast_for_shard);
     }
+    else
+        query_ast_for_shard = query_ast;
+
+    auto shard_plans = stream_factory.createForShardWithParallelReplicas(shard_info,
+        query_ast_for_shard, main_table, table_func_ptr, throttler, context,
+        static_cast<UInt32>(shards), query_info);
+
+    if (!shard_plans.local_plan && !shard_plans.remote_plan)
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "No plans were generated for reading from shard. This is a bug");
+
+    if (shard_plans.local_plan)
+        plans.emplace_back(std::move(shard_plans.local_plan));
+
+    if (shard_plans.remote_plan)
+        plans.emplace_back(std::move(shard_plans.remote_plan));
 
     if (plans.empty())
         throw Exception(ErrorCodes::LOGICAL_ERROR, "No plans were generated for reading from Distributed. This is a bug");

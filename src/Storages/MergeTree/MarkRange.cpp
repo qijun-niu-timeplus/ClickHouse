@@ -56,6 +56,14 @@ std::string toString(const MarkRanges & ranges)
     return result;
 }
 
+size_t MarkRanges::getNumberOfMarks() const
+{
+    size_t result = 0;
+    for (const auto & mark : *this)
+        result += mark.getNumberOfMarks();
+    return result;
+}
+
 void MarkRanges::serialize(WriteBuffer & out) const
 {
     writeIntBinary(this->size(), out);
