@@ -1,3 +1,4 @@
+#include <chrono>
 #include <Storages/MergeTree/RequestResponse.h>
 
 #include <Core/ProtocolDefines.h>
@@ -35,6 +36,8 @@ void ParallelReadRequest::describe(WriteBuffer & out) const
     result += fmt::format("replica_num: {} \n", replica_num);
     result += fmt::format("min_num_of_marks: {} \n", min_number_of_marks);
     out.write(result.c_str(), result.size());
+
+    description.describe(out);
 }
 
 void ParallelReadRequest::deserialize(ReadBuffer & in)
@@ -46,10 +49,18 @@ void ParallelReadRequest::deserialize(ReadBuffer & in)
             "from replicas differ. Got: {}, supported version: {}",
             version, DBMS_PARALLEL_REPLICAS_PROTOCOL_VERSION);
 
-    readIntBinary(version, in);
+    readIntBinary(mode, in);
     readIntBinary(replica_num, in);
     readIntBinary(min_number_of_marks, in);
     description.deserialize(in);
+}
+
+void ParallelReadRequest::merge(ParallelReadRequest & other)
+{
+    assert(mode == other.mode);
+    assert(replica_num == other.replica_num);
+    assert(min_number_of_marks == other.min_number_of_marks);
+    description.merge(other.description);
 }
 
 void ParallelReadResponse::serialize(WriteBuffer & out) const

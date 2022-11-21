@@ -216,16 +216,11 @@ SelectStreamFactory::ShardPlans SelectStreamFactory::createForShardWithParallelR
     if (read_from_local)
         ++all_replicas_count;
 
-
-    CoordinationMode mode = CoordinationMode::Default;
-    if (query_info.input_order_info)
-    {
-        LOG_TRACE(&Poco::Logger::get("SelectStreamFactory"), "Will use coordinator with `InOrder` scheduling mode");
-        mode = CoordinationMode::WithOrder;
-    }
-
-    auto coordinator = std::make_shared<ParallelReplicasReadingCoordinator>(mode, all_replicas_count);
+    LOG_TRACE(&Poco::Logger::get("SelectStreamFactory"), "Will construct coordinator");
+    auto coordinator = std::make_shared<ParallelReplicasReadingCoordinator>(all_replicas_count);
     auto remote_plan = std::make_unique<QueryPlan>();
+
+    query_info.coordinator = coordinator;
 
     if (read_from_local)
     {

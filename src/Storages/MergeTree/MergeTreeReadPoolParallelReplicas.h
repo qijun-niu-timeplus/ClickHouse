@@ -10,6 +10,7 @@
 #include "Storages/MergeTree/RequestResponse.h"
 #include "Storages/StorageSnapshot.h"
 
+#include <condition_variable>
 #include <mutex>
 #include <memory>
 
@@ -104,5 +105,28 @@ private:
 };
 
 using MergeTreeReadPoolParallelReplicasPtr = std::shared_ptr<MergeTreeReadPoolParallelReplicas>;
+
+
+class MergeTreeInOrderReadPoolParallelReplicas : private boost::noncopyable
+{
+public:
+    MergeTreeInOrderReadPoolParallelReplicas(
+        RangesInDataParts parts_,
+        ParallelReadingExtension extension_)
+    : parts_ranges(parts_)
+    , extension(extension_)
+    {}
+
+    MarkRanges getNewTask(RangesInDataPartDescription description);
+
+    RangesInDataParts parts_ranges;
+    ParallelReadingExtension extension;
+
+    std::mutex mutex;
+    std::condition_variable can_go;
+};
+
+using MergeTreeInOrderReadPoolParallelReplicasPtr = std::shared_ptr<MergeTreeInOrderReadPoolParallelReplicas>;
+
 
 }

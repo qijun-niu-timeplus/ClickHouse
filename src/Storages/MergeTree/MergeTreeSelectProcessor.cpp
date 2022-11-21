@@ -21,6 +21,7 @@ MergeTreeSelectProcessor::MergeTreeSelectProcessor(
     const PrewhereInfoPtr & prewhere_info_,
     ExpressionActionsSettings actions_settings,
     const MergeTreeReaderSettings & reader_settings_,
+    MergeTreeInOrderReadPoolParallelReplicasPtr pool_,
     const Names & virt_column_names_,
     size_t part_index_in_query_,
     bool has_limit_below_one_block_)
@@ -35,6 +36,7 @@ MergeTreeSelectProcessor::MergeTreeSelectProcessor(
     all_mark_ranges(std::move(mark_ranges_)),
     part_index_in_query(part_index_in_query_),
     has_limit_below_one_block(has_limit_below_one_block_),
+    pool(pool_),
     total_rows(data_part->index_granularity.getRowsCountInRanges(all_mark_ranges))
 {
     ordered_names = header_without_virtual_columns.getNames();

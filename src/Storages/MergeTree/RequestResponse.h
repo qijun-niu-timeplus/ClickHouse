@@ -1,5 +1,6 @@
 #pragma once
 
+#include <condition_variable>
 #include <functional>
 #include <optional>
 
@@ -46,6 +47,7 @@ struct ParallelReadRequest
     void serialize(WriteBuffer & out) const;
     void describe(WriteBuffer & out) const;
     void deserialize(ReadBuffer & in);
+    void merge(ParallelReadRequest & other);
 };
 
 struct ParallelReadResponse
@@ -69,8 +71,8 @@ struct InitialAllRangesAnnouncement
     void deserialize(ReadBuffer & in);
 };
 
+
 using MergeTreeAllRangesCallback = std::function<void(InitialAllRangesAnnouncement)>;
 using MergeTreeReadTaskCallback = std::function<std::optional<ParallelReadResponse>(ParallelReadRequest)>;
-
 
 }

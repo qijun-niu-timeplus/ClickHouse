@@ -245,11 +245,6 @@ void StorageMergeTree::read(
         Block header =
             InterpreterSelectQuery(query_info.query, local_context, SelectQueryOptions(processed_stage).analyze()).getSampleBlock();
 
-
-        std::cout << "StorageMergeTree::read()" << std::endl;
-        std::cout << header.dumpStructure() << std::endl;
-        std::cout << QueryProcessingStage::toString(processed_stage) << std::endl;
-
         ClusterProxy::SelectStreamFactory select_stream_factory =
             ClusterProxy::SelectStreamFactory(
                 header,

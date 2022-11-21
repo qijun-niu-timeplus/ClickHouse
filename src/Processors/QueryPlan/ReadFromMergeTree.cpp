@@ -299,7 +299,8 @@ ProcessorPtr ReadFromMergeTree::createSource(
     const RangesInDataPart & part,
     const Names & required_columns,
     bool use_uncompressed_cache,
-    bool has_limit_below_one_block)
+    bool has_limit_below_one_block,
+    MergeTreeInOrderReadPoolParallelReplicasPtr pool)
 {
     auto total_rows = part.getRowsCount();
     if (query_info.limit > 0 && query_info.limit < total_rows)
@@ -315,7 +316,7 @@ ProcessorPtr ReadFromMergeTree::createSource(
     auto source = std::make_shared<TSource>(
             data, storage_snapshot, part.data_part, max_block_size, preferred_block_size_bytes,
             preferred_max_column_in_block_size_bytes, required_columns, part.ranges, use_uncompressed_cache, prewhere_info,
-            actions_settings, reader_settings, virt_column_names, part.part_index_in_query, has_limit_below_one_block);
+            actions_settings, reader_settings, pool, virt_column_names, part.part_index_in_query, has_limit_below_one_block);
 
     if (set_rows_approx)
         source -> addTotalRowsApprox(total_rows);
@@ -328,7 +329,8 @@ Pipe ReadFromMergeTree::readInOrder(
     Names required_columns,
     ReadType read_type,
     bool use_uncompressed_cache,
-    UInt64 limit)
+    UInt64 limit,
+    MergeTreeInOrderReadPoolParallelReplicasPtr pool)
 {
     Pipes pipes;
     /// For reading in order it makes sense to read only
@@ -338,8 +340,8 @@ Pipe ReadFromMergeTree::readInOrder(
     for (const auto & part : parts_with_range)
     {
         auto source = read_type == ReadType::InReverseOrder
-                    ? createSource<MergeTreeReverseSelectProcessor>(part, required_columns, use_uncompressed_cache, has_limit_below_one_block)
-                    : createSource<MergeTreeInOrderSelectProcessor>(part, required_columns, use_uncompressed_cache, has_limit_below_one_block);
+                    ? createSource<MergeTreeReverseSelectProcessor>(part, required_columns, use_uncompressed_cache, has_limit_below_one_block, pool)
+                    : createSource<MergeTreeInOrderSelectProcessor>(part, required_columns, use_uncompressed_cache, has_limit_below_one_block, pool);
 
         pipes.emplace_back(std::move(source));
     }
@@ -368,7 +370,7 @@ Pipe ReadFromMergeTree::read(
         return readFromPool(parts_with_range, required_columns, max_streams,
                             min_marks_for_concurrent_read, use_uncompressed_cache);
 
-    auto pipe = readInOrder(parts_with_range, required_columns, read_type, use_uncompressed_cache, 0);
+    auto pipe = readInOrder(parts_with_range, required_columns, read_type, use_uncompressed_cache, 0, nullptr);
 
     /// Use ConcatProcessor to concat sources together.
     /// It is needed to read in parts order (and so in PK order) if single thread is used.
@@ -488,13 +490,6 @@ Pipe ReadFromMergeTree::spreadMarkRangesAmongStreamsWithOrder(
     ActionsDAGPtr & out_projection,
     const InputOrderInfoPtr & input_order_info)
 {
-    /// Tell about all ranges
-    if (all_ranges_callback)
-        all_ranges_callback.value()(InitialAllRangesAnnouncement{
-            .description = parts_with_ranges.getDescriptions(),
-            .replica_num = context->getClientInfo().number_of_current_replica
-        });
-
     const auto & settings = context->getSettingsRef();
     const auto data_settings = data.getSettings();
 
@@ -573,7 +568,34 @@ Pipe ReadFromMergeTree::spreadMarkRangesAmongStreamsWithOrder(
     const size_t min_marks_per_stream = (info.sum_marks - 1) / requested_num_streams + 1;
     bool need_preliminary_merge = (parts_with_ranges.size() > settings.read_in_order_two_level_merge_threshold);
 
-    Pipes pipes;
+    std::vector<RangesInDataParts> splitted_parts_and_ranges;
+    splitted_parts_and_ranges.reserve(requested_num_streams);
+
+    const auto read_type = input_order_info->direction == 1
+                       ? ReadFromMergeTree::ReadType::InOrder
+                       : ReadFromMergeTree::ReadType::InReverseOrder;
+
+    MergeTreeInOrderReadPoolParallelReplicasPtr pool;
+
+    if (all_ranges_callback)
+    {
+        (*all_ranges_callback)({
+            .description = parts_with_ranges.getDescriptions(),
+            .replica_num = context->getClientInfo().number_of_current_replica});
+
+        const auto & client_info = context->getClientInfo();
+        auto extension = ParallelReadingExtension
+        {
+            .all_callback = all_ranges_callback.value(),
+            .callback = read_task_callback.value(),
+            .count_participating_replicas = client_info.count_participating_replicas,
+            .number_of_current_replica = client_info.number_of_current_replica,
+            .colums_to_read = column_names
+        };
+
+        pool = std::make_shared<MergeTreeInOrderReadPoolParallelReplicas>(parts_with_ranges, extension);
+    }
+
 
     for (size_t i = 0; i < requested_num_streams && !parts_with_ranges.empty(); ++i)
     {
@@ -642,13 +664,13 @@ Pipe ReadFromMergeTree::spreadMarkRangesAmongStreamsWithOrder(
             new_parts.emplace_back(part.data_part, part.part_index_in_query, std::move(ranges_to_get_from_part));
         }
 
-        auto read_type = input_order_info->direction == 1
-                       ? ReadFromMergeTree::ReadType::InOrder
-                       : ReadFromMergeTree::ReadType::InReverseOrder;
-
-        pipes.emplace_back(readInOrder(std::move(new_parts), column_names, read_type,
-                                        info.use_uncompressed_cache, input_order_info->limit));
+        splitted_parts_and_ranges.emplace_back(std::move(new_parts));
     }
+
+    Pipes pipes;
+    for (auto & item : splitted_parts_and_ranges)
+        pipes.emplace_back(readInOrder(std::move(item), column_names, read_type,
+                                        info.use_uncompressed_cache, input_order_info->limit, pool));
 
     Block pipe_header;
     if (!pipes.empty())
@@ -1140,6 +1162,9 @@ MergeTreeDataSelectAnalysisResultPtr ReadFromMergeTree::selectRangesToRead(
 
 void ReadFromMergeTree::requestReadingInOrder(size_t prefix_size, int direction, size_t limit)
 {
+    std::cout << "Request reading in order" << std::endl;
+    std::cout << StackTrace().toString() << std::endl;
+
     /// if dirction is not set, use current one
     if (!direction)
         direction = getSortDirection();
@@ -1238,6 +1263,8 @@ void ReadFromMergeTree::initializePipeline(QueryPipelineBuilder & pipeline, cons
 
     Pipe pipe;
 
+
+
     const auto & input_order_info = query_info.getInputOrderInfo();
 
     // if (final)
@@ -1261,6 +1288,8 @@ void ReadFromMergeTree::initializePipeline(QueryPipelineBuilder & pipeline, cons
     // }
     if (input_order_info)
     {
+        // assert(query_info.coordinator);
+        // query_info.coordinator->initialize(CoordinationMode::WithOrder);
         pipe = spreadMarkRangesAmongStreamsWithOrder(
             std::move(result.parts_with_ranges),
             column_names_to_read,
@@ -1269,6 +1298,8 @@ void ReadFromMergeTree::initializePipeline(QueryPipelineBuilder & pipeline, cons
     }
     else
     {
+        // assert(query_info.coordinator);
+        // query_info.coordinator->initialize(CoordinationMode::Default);
         pipe = spreadMarkRangesAmongStreams(
             std::move(result.parts_with_ranges),
             column_names_to_read);

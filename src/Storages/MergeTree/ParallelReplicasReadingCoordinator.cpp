@@ -339,6 +339,8 @@ public:
 
     Parts all_parts_to_read;
 
+    Poco::Logger * log = &Poco::Logger::get("InOrderCoordinator");
+
     std::mutex mutex;
 };
 
@@ -346,6 +348,11 @@ public:
 void InOrderCoordinator::handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement announcement)
 {
     std::lock_guard lock(mutex);
+
+    WriteBufferFromOwnString ss;
+    announcement.describe(ss);
+
+    LOG_TRACE(log, "Received an announecement {}", ss.str());
 
     /// To get rid of duplicates
     for (const auto & part: announcement.description)
@@ -387,6 +394,11 @@ ParallelReadResponse InOrderCoordinator::handleRequest(ParallelReadRequest reque
             "Replica {} decided to read in {} mode, not in InOrder. This is a bug",
             request.replica_num, magic_enum::enum_name(request.mode));
 
+
+    WriteBufferFromOwnString ssin;
+    request.describe(ssin);
+    LOG_TRACE(log, "Got request from replica {}, data {}", request.replica_num, ssin.str());
+
     ParallelReadResponse response;
     response.description = request.description;
     size_t overall_number_of_marks = 0;
@@ -404,12 +416,14 @@ ParallelReadResponse InOrderCoordinator::handleRequest(ParallelReadRequest reque
 
         auto current_ranges = HalfIntervals::initializeFromMarkRanges(global_part_it->description.ranges);
         auto allowed_ranges = current_ranges.intersect(HalfIntervals::initializeFromMarkRanges(part.ranges));
+
+        part.ranges = allowed_ranges.convertToMarkRangesFinal();
+        auto current_mark_size = part.ranges.getNumberOfMarks();
+
         auto new_global_ranges = HalfIntervals::initializeFromMarkRanges(global_part_it->description.ranges).intersect(allowed_ranges.negate());
         global_part_it->description.ranges = new_global_ranges.convertToMarkRangesFinal();
 
         /// Now we can recommend to read more intervals
-        part.ranges = allowed_ranges.convertToMarkRangesFinal();
-        auto current_mark_size = part.ranges.getNumberOfMarks();
 
         while (!global_part_it->description.ranges.empty() && current_mark_size < request.min_number_of_marks)
         {
@@ -439,32 +453,47 @@ ParallelReadResponse InOrderCoordinator::handleRequest(ParallelReadRequest reque
     if (!overall_number_of_marks)
         response.finish = true;
 
+    WriteBufferFromOwnString ss;
+    response.describe(ss);
+
+    LOG_TRACE(log, "Going to respond to replica {} with {}", request.replica_num, ss.str());
+
     return response;
 }
 
 
 void ParallelReplicasReadingCoordinator::handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement announcement)
 {
+    if (!pimpl)
+        initialize();
+
     return pimpl->handleInitialAllRangesAnnouncement(announcement);
 }
-
 
 ParallelReadResponse ParallelReplicasReadingCoordinator::handleRequest(ParallelReadRequest request)
 {
     return pimpl->handleRequest(std::move(request));
 }
 
-ParallelReplicasReadingCoordinator::ParallelReplicasReadingCoordinator(CoordinationMode mode, size_t replicas_count_)
+void ParallelReplicasReadingCoordinator::setMode(CoordinationMode mode_)
+{
+    mode = mode_;
+    initialize();
+}
+
+void ParallelReplicasReadingCoordinator::initialize()
 {
     switch (mode)
     {
         case CoordinationMode::Default:
-            pimpl = std::make_unique<DefaultCoordinator>(replicas_count_);
+            pimpl = std::make_unique<DefaultCoordinator>(replicas_count);
             return;
         case CoordinationMode::WithOrder:
-            pimpl = std::make_unique<InOrderCoordinator>(replicas_count_);
+            pimpl = std::make_unique<InOrderCoordinator>(replicas_count);
     }
 }
+
+ParallelReplicasReadingCoordinator::ParallelReplicasReadingCoordinator(size_t replicas_count_) : replicas_count(replicas_count_) {}
 
 ParallelReplicasReadingCoordinator::~ParallelReplicasReadingCoordinator() = default;
 

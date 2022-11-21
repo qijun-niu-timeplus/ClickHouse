@@ -194,4 +194,39 @@ MergeTreeReadTaskPtr MergeTreeReadPoolParallelReplicas::getTask()
         prewhere_info && prewhere_info->remove_prewhere_column, std::move(curr_task_size_predictor));
 }
 
+
+MarkRanges MergeTreeInOrderReadPoolParallelReplicas::getNewTask(RangesInDataPartDescription description)
+{
+    std::lock_guard lock(mutex);
+
+    LOG_TRACE(&Poco::Logger::get("MergeTreeInOrderReadPoolParallelReplicas"), "Get new task!");
+
+    RangesInDataPartsDescription descriptions;
+    descriptions.emplace_back(description);
+
+    auto result = extension.callback(ParallelReadRequest{
+            .mode = CoordinationMode::WithOrder,
+            .replica_num = extension.number_of_current_replica,
+            .min_number_of_marks = 100, // FIXME
+            .description = descriptions,
+        });
+
+    if (!result)
+    {
+        return {};
+    }
+
+    if (result->description.empty())
+    {
+        return {};
+    }
+
+    if (result->finish)
+    {
+        return {};
+    }
+
+    return result->description[0].ranges;
+}
+
 }

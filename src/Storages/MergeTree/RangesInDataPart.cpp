@@ -35,10 +35,11 @@ void RangesInDataPartDescription::deserialize(ReadBuffer & in)
     ranges.deserialize(in);
 }
 
-
 void RangesInDataPartsDescription::serialize(WriteBuffer & out) const
 {
-    writeIntBinary(this->size(), out);
+    std::cout << "Serializing size " << this->size() << std::endl;
+
+    writeVarUInt(this->size(), out);
     for (const auto & desc : *this)
         desc.serialize(out);
 }
@@ -52,14 +53,20 @@ void RangesInDataPartsDescription::describe(WriteBuffer & out) const
 
 void RangesInDataPartsDescription::deserialize(ReadBuffer & in)
 {
-    std::cout << "Deserializing RangesInDataPartsDescription" << std::endl;
-
     size_t new_size = 0;
-    readIntBinary(new_size, in);
+    readVarUInt(new_size, in);
+
+    std::cout << "Got size " << new_size << std::endl;
+
     this->resize(new_size);
     for (auto & desc : *this)
         desc.deserialize(in);
-    std::cout << "Deserialization done" << std::endl;
+}
+
+void RangesInDataPartsDescription::merge(RangesInDataPartsDescription & other)
+{
+    for (auto desc : other)
+        this->emplace_back(desc);
 }
 
 RangesInDataPartDescription RangesInDataPart::getDescription() const

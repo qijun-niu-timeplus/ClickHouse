@@ -263,6 +263,12 @@ ReadFromParallelRemoteReplicasStep::ReadFromParallelRemoteReplicasStep(
 }
 
 
+void ReadFromParallelRemoteReplicasStep::requestReadingInOrder()
+{
+    coordinator->setMode(CoordinationMode::WithOrder);
+}
+
+
 void ReadFromParallelRemoteReplicasStep::initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
     Pipes pipes;

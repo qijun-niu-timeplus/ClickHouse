@@ -11,13 +11,18 @@ class ParallelReplicasReadingCoordinator
 public:
     class ImplInterface;
 
-    explicit ParallelReplicasReadingCoordinator(CoordinationMode mode, size_t replicas_count_);
+    explicit ParallelReplicasReadingCoordinator(size_t replicas_count_);
     ~ParallelReplicasReadingCoordinator();
 
+    void setMode(CoordinationMode mode);
+    void initialize();
     void handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement);
     ParallelReadResponse handleRequest(ParallelReadRequest request);
 
 private:
+    CoordinationMode mode{CoordinationMode::WithOrder}; //FIXME
+    size_t replicas_count{0};
+    std::atomic<bool> initialized{false};
     std::unique_ptr<ImplInterface> pimpl;
 };
 
