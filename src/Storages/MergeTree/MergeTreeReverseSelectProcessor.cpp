@@ -1,4 +1,5 @@
 #include <Storages/MergeTree/MergeTreeReverseSelectProcessor.h>
+#include <Storages/MergeTree/IntersectionsIndexes.h>
 
 namespace DB
 {
@@ -26,6 +27,24 @@ try
     auto mark_ranges_for_task = MarkRanges{};
     mark_ranges_for_task.emplace_front(std::move(all_mark_ranges.back()));
     all_mark_ranges.pop_back();
+
+    if (pool)
+    {
+        auto description = RangesInDataPartDescription{
+            .info = data_part->info,
+            .ranges = mark_ranges_for_task,
+        };
+
+        mark_ranges_for_task = pool->getNewTask(description);
+
+        if (mark_ranges_for_task.empty())
+            return false;
+
+        /// We need to subtract new ranges from all ranges we have now
+        auto current_ranges = HalfIntervals::initializeFromMarkRanges(all_mark_ranges);
+        current_ranges.intersect(HalfIntervals::initializeFromMarkRanges(mark_ranges_for_task).negate());
+        all_mark_ranges = current_ranges.convertToMarkRangesFinal();
+    }
 
     auto size_predictor = (preferred_block_size_bytes == 0) ? nullptr
         : getSizePredictor(data_part, task_columns, sample_block);

@@ -55,6 +55,7 @@ std::unique_ptr<QueryPlan> createLocalPlan(
     new_context->getClientInfo().query_kind = ClientInfo::QueryKind::SECONDARY_QUERY;
     new_context->getClientInfo().count_participating_replicas = replica_count;
     new_context->getClientInfo().number_of_current_replica = replica_num;
+    new_context->getClientInfo().parallel_replicas_local_replica = true;
     new_context->setMergeTreeAllRangesCallback([coordinator](InitialAllRangesAnnouncement announcement)
     {
         coordinator->handleInitialAllRangesAnnouncement(announcement);
@@ -63,6 +64,7 @@ std::unique_ptr<QueryPlan> createLocalPlan(
     {
         return coordinator->handleRequest(request);
     });
+    new_context->parallel_reading_coordinator = coordinator;
 
     /// Do not apply AST optimizations, because query
     /// is already optimized and some optimizations

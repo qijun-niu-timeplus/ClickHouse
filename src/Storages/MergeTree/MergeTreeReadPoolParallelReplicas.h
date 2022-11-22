@@ -112,15 +112,18 @@ class MergeTreeInOrderReadPoolParallelReplicas : private boost::noncopyable
 public:
     MergeTreeInOrderReadPoolParallelReplicas(
         RangesInDataParts parts_,
-        ParallelReadingExtension extension_)
+        ParallelReadingExtension extension_,
+        CoordinationMode mode_)
     : parts_ranges(parts_)
     , extension(extension_)
+    , mode(mode_)
     {}
 
     MarkRanges getNewTask(RangesInDataPartDescription description);
 
     RangesInDataParts parts_ranges;
     ParallelReadingExtension extension;
+    CoordinationMode mode;
 
     std::mutex mutex;
     std::condition_variable can_go;

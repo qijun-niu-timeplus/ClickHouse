@@ -1,11 +1,11 @@
 #include <ctime>
 #include <mutex>
-#include <Storages/MergeTree/MergeTreeReadPoolParallelReplicas.h>
 #include <Storages/MergeTree/LoadedMergeTreeDataPartInfoForReader.h>
+#include <Storages/MergeTree/MergeTreeReadPoolParallelReplicas.h>
 #include <Poco/Logger.h>
+#include "Common/Stopwatch.h"
 #include "Common/ThreadPool.h"
 #include <Common/logger_useful.h>
-#include "Common/Stopwatch.h"
 #include "IO/WriteBuffer.h"
 #include "IO/WriteBufferFromString.h"
 #include "Interpreters/Context.h"
@@ -31,12 +31,10 @@ void MergeTreeReadPoolParallelReplicas::initialize()
     desc.describe(result);
     std::cout << result.str() << std::endl;
 
-    extension.all_callback(
-        InitialAllRangesAnnouncement{
-            .description = desc,
-            .replica_num = extension.number_of_current_replica,
-        }
-    );
+    extension.all_callback(InitialAllRangesAnnouncement{
+        .description = desc,
+        .replica_num = extension.number_of_current_replica,
+    });
 
     sendRequest();
 }
@@ -64,8 +62,12 @@ std::vector<size_t> MergeTreeReadPoolParallelReplicas::fillPerPartInfo(const Ran
         per_part_sum_marks.push_back(sum_marks);
 
         auto task_columns = getReadTaskColumns(
-            LoadedMergeTreeDataPartInfoForReader(part.data_part), storage_snapshot,
-            column_names, virtual_column_names, prewhere_info, /*with_subcolumns=*/ true);
+            LoadedMergeTreeDataPartInfoForReader(part.data_part),
+            storage_snapshot,
+            column_names,
+            virtual_column_names,
+            prewhere_info,
+            /*with_subcolumns=*/true);
 
         auto size_predictor = nullptr;
 
@@ -78,7 +80,7 @@ std::vector<size_t> MergeTreeReadPoolParallelReplicas::fillPerPartInfo(const Ran
         per_part.column_name_set = {required_column_names.begin(), required_column_names.end()};
         per_part.task_columns = std::move(task_columns);
 
-        parts_with_idx.push_back({ part.data_part, part.part_index_in_query });
+        parts_with_idx.push_back({part.data_part, part.part_index_in_query});
     }
 
     return per_part_sum_marks;
@@ -89,14 +91,13 @@ void MergeTreeReadPoolParallelReplicas::sendRequest()
 {
     auto promise_response = std::make_shared<std::promise<std::optional<ParallelReadResponse>>>();
     future_response = promise_response->get_future();
-    GlobalThreadPool::instance().scheduleOrThrow([promise = std::move(promise_response), this]() mutable
-    {
-        auto result = extension.callback(ParallelReadRequest{
-            .replica_num = extension.number_of_current_replica,
-            .min_number_of_marks = min_marks_for_concurrent_read * threads * 2
+    GlobalThreadPool::instance().scheduleOrThrow(
+        [promise = std::move(promise_response), this]() mutable
+        {
+            auto result = extension.callback(ParallelReadRequest{
+                .replica_num = extension.number_of_current_replica, .min_number_of_marks = min_marks_for_concurrent_read * threads * 2});
+            promise->set_value(result);
         });
-        promise->set_value(result);
-    });
 }
 
 
@@ -174,8 +175,8 @@ MergeTreeReadTaskPtr MergeTreeReadPoolParallelReplicas::getTask()
 
     const auto & per_part = per_part_params[part_idx];
 
-    auto curr_task_size_predictor = !per_part.size_predictor ? nullptr
-        : std::make_unique<MergeTreeBlockSizePredictor>(*per_part.size_predictor); /// make a copy
+    auto curr_task_size_predictor
+        = !per_part.size_predictor ? nullptr : std::make_unique<MergeTreeBlockSizePredictor>(*per_part.size_predictor); /// make a copy
 
     std::cout << "Will read from part {}" << part.data_part->info.getPartName() << std::endl;
     for (auto & range : ranges_to_read)
@@ -189,9 +190,14 @@ MergeTreeReadTaskPtr MergeTreeReadPoolParallelReplicas::getTask()
     times_to_respond.push_back(stopwatch.elapsedMicroseconds());
 
     return std::make_unique<MergeTreeReadTask>(
-        part.data_part, ranges_to_read, part.part_index_in_query, column_names,
-        per_part.column_name_set, per_part.task_columns,
-        prewhere_info && prewhere_info->remove_prewhere_column, std::move(curr_task_size_predictor));
+        part.data_part,
+        ranges_to_read,
+        part.part_index_in_query,
+        column_names,
+        per_part.column_name_set,
+        per_part.task_columns,
+        prewhere_info && prewhere_info->remove_prewhere_column,
+        std::move(curr_task_size_predictor));
 }
 
 
@@ -205,11 +211,11 @@ MarkRanges MergeTreeInOrderReadPoolParallelReplicas::getNewTask(RangesInDataPart
     descriptions.emplace_back(description);
 
     auto result = extension.callback(ParallelReadRequest{
-            .mode = CoordinationMode::WithOrder,
-            .replica_num = extension.number_of_current_replica,
-            .min_number_of_marks = 100, // FIXME
-            .description = descriptions,
-        });
+        .mode = mode,
+        .replica_num = extension.number_of_current_replica,
+        .min_number_of_marks = 100, // FIXME
+        .description = descriptions,
+    });
 
     if (!result)
     {

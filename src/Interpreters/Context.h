@@ -379,6 +379,7 @@ private:
 
     /// Temporary data for query execution accounting.
     TemporaryDataOnDiskScopePtr temp_data_on_disk;
+
 public:
     /// Some counters for current query execution.
     /// Most of them are workarounds and should be removed in the future.
@@ -400,6 +401,8 @@ public:
     };
 
     KitchenSink kitchen_sink;
+
+    ParallelReplicasReadingCoordinatorPtr parallel_reading_coordinator;
 
 private:
     using SampleBlockCache = std::unordered_map<std::string, Block>;

@@ -39,28 +39,28 @@ try
 
     if (pool)
     {
-        size_t current_sum_marks = 0;
-        size_t max_marks = 100;
+        // size_t current_sum_marks = 0;
+        // size_t max_marks = 100;
 
-        while (!all_mark_ranges.empty() && current_sum_marks < max_marks)
-        {
-            auto current_range = all_mark_ranges.front();
-            all_mark_ranges.pop_front();
-            auto gap = max_marks - current_sum_marks;
-            if (current_range.getNumberOfMarks() <= gap)
-            {
-                mark_ranges_for_task.emplace_back(current_range);
-                current_sum_marks += current_range.getNumberOfMarks();
-                continue;
-            }
+        // while (!all_mark_ranges.empty() && current_sum_marks < max_marks)
+        // {
+        //     auto current_range = all_mark_ranges.front();
+        //     all_mark_ranges.pop_front();
+        //     auto gap = max_marks - current_sum_marks;
+        //     if (current_range.getNumberOfMarks() <= gap)
+        //     {
+        //         mark_ranges_for_task.emplace_back(current_range);
+        //         current_sum_marks += current_range.getNumberOfMarks();
+        //         continue;
+        //     }
 
-            auto new_range = current_range;
-            new_range.end = new_range.begin + gap;
-            current_range.begin += gap;
-            current_sum_marks += gap;
-            mark_ranges_for_task.emplace_back(new_range);
-            all_mark_ranges.emplace_front(current_range);
-        }
+        //     auto new_range = current_range;
+        //     new_range.end = new_range.begin + gap;
+        //     current_range.begin += gap;
+        //     current_sum_marks += gap;
+        //     mark_ranges_for_task.emplace_back(new_range);
+        //     all_mark_ranges.emplace_front(current_range);
+        // }
 
         auto description = RangesInDataPartDescription{
             .info = data_part->info,

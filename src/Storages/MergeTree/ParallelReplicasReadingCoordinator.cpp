@@ -327,7 +327,7 @@ ParallelReadResponse DefaultCoordinator::handleRequest(ParallelReadRequest reque
 }
 
 
-
+template <CoordinationMode mode>
 class InOrderCoordinator : public ParallelReplicasReadingCoordinator::ImplInterface
 {
 public:
@@ -339,13 +339,14 @@ public:
 
     Parts all_parts_to_read;
 
-    Poco::Logger * log = &Poco::Logger::get("InOrderCoordinator");
+    Poco::Logger * log = &Poco::Logger::get(fmt::format("{}{}", magic_enum::enum_name(mode), "Coordinator"));
 
     std::mutex mutex;
 };
 
 
-void InOrderCoordinator::handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement announcement)
+template <CoordinationMode mode>
+void InOrderCoordinator<mode>::handleInitialAllRangesAnnouncement(InitialAllRangesAnnouncement announcement)
 {
     std::lock_guard lock(mutex);
 
@@ -384,15 +385,15 @@ void InOrderCoordinator::handleInitialAllRangesAnnouncement(InitialAllRangesAnno
 }
 
 
-
-ParallelReadResponse InOrderCoordinator::handleRequest(ParallelReadRequest request)
+template <CoordinationMode mode>
+ParallelReadResponse InOrderCoordinator<mode>::handleRequest(ParallelReadRequest request)
 {
     std::lock_guard lock(mutex);
 
-    if (request.mode != CoordinationMode::WithOrder)
+    if (request.mode != mode)
         throw Exception(ErrorCodes::LOGICAL_ERROR,
-            "Replica {} decided to read in {} mode, not in InOrder. This is a bug",
-            request.replica_num, magic_enum::enum_name(request.mode));
+            "Replica {} decided to read in {} mode, not in {}. This is a bug",
+            request.replica_num, magic_enum::enum_name(request.mode), magic_enum::enum_name(mode));
 
 
     WriteBufferFromOwnString ssin;
@@ -424,27 +425,55 @@ ParallelReadResponse InOrderCoordinator::handleRequest(ParallelReadRequest reque
         global_part_it->description.ranges = new_global_ranges.convertToMarkRangesFinal();
 
         /// Now we can recommend to read more intervals
+        // if constexpr (mode == CoordinationMode::ReverseOrder)
+        // {
+        //     while (!global_part_it->description.ranges.empty() && current_mark_size < request.min_number_of_marks)
+        //     {
+        //         auto range = global_part_it->description.ranges.back();
 
-        while (!global_part_it->description.ranges.empty() && current_mark_size < request.min_number_of_marks)
+        //         auto gap = request.min_number_of_marks - current_mark_size;
+        //         if (range.getNumberOfMarks() > gap)
+        //         {
+        //             auto new_range = range;
+        //             range.end -= request.min_number_of_marks;
+        //             new_range.begin = new_range.end - request.min_number_of_marks;
+
+        //             global_part_it->description.ranges.back() = range;
+
+        //             part.ranges.emplace_front(new_range);
+        //             current_mark_size += new_range.getNumberOfMarks();
+        //             continue;
+        //         }
+
+        //         current_mark_size += global_part_it->description.ranges.back().getNumberOfMarks();
+        //         part.ranges.emplace_front(global_part_it->description.ranges.back());
+        //         global_part_it->description.ranges.pop_back();
+        //     }
+        // }
+
+        if (mode == CoordinationMode::WithOrder)
         {
-            auto range = global_part_it->description.ranges.front();
-
-            if (range.getNumberOfMarks() > request.min_number_of_marks)
+            while (!global_part_it->description.ranges.empty() && current_mark_size < request.min_number_of_marks)
             {
-                auto new_range = range;
-                range.begin += request.min_number_of_marks;
-                new_range.end = new_range.begin + request.min_number_of_marks;
+                auto range = global_part_it->description.ranges.front();
 
-                global_part_it->description.ranges.front() = range;
+                if (range.getNumberOfMarks() > request.min_number_of_marks)
+                {
+                    auto new_range = range;
+                    range.begin += request.min_number_of_marks;
+                    new_range.end = new_range.begin + request.min_number_of_marks;
 
-                response.description.back().ranges.emplace_back(new_range);
-                current_mark_size += new_range.getNumberOfMarks();
-                continue;
+                    global_part_it->description.ranges.front() = range;
+
+                    part.ranges.emplace_back(new_range);
+                    current_mark_size += new_range.getNumberOfMarks();
+                    continue;
+                }
+
+                current_mark_size += global_part_it->description.ranges.front().getNumberOfMarks();
+                part.ranges.emplace_back(global_part_it->description.ranges.front());
+                global_part_it->description.ranges.pop_front();
             }
-
-            current_mark_size += global_part_it->description.ranges.front().getNumberOfMarks();
-            response.description.back().ranges.emplace_back(global_part_it->description.ranges.front());
-            global_part_it->description.ranges.pop_front();
         }
 
         overall_number_of_marks += current_mark_size;
@@ -489,7 +518,11 @@ void ParallelReplicasReadingCoordinator::initialize()
             pimpl = std::make_unique<DefaultCoordinator>(replicas_count);
             return;
         case CoordinationMode::WithOrder:
-            pimpl = std::make_unique<InOrderCoordinator>(replicas_count);
+            pimpl = std::make_unique<InOrderCoordinator<CoordinationMode::WithOrder>>(replicas_count);
+            return;
+        case CoordinationMode::ReverseOrder:
+            pimpl = std::make_unique<InOrderCoordinator<CoordinationMode::ReverseOrder>>(replicas_count);
+            return;
     }
 }
 

@@ -20,7 +20,7 @@ public:
     ParallelReadResponse handleRequest(ParallelReadRequest request);
 
 private:
-    CoordinationMode mode{CoordinationMode::WithOrder}; //FIXME
+    CoordinationMode mode{CoordinationMode::Default};
     size_t replicas_count{0};
     std::atomic<bool> initialized{false};
     std::unique_ptr<ImplInterface> pimpl;

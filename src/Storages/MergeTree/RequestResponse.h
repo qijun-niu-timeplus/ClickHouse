@@ -20,7 +20,8 @@ enum class CoordinationMode
 {
     Default,
     /// For reading in order
-    WithOrder
+    WithOrder,
+    ReverseOrder
 };
 
 /// Represents a segment [left; right]

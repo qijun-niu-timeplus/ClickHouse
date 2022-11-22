@@ -131,6 +131,9 @@ ReadFromMergeTree::ReadFromMergeTree(
     {
         all_ranges_callback = context->getMergeTreeAllRangesCallback();
         read_task_callback = context->getMergeTreeReadTaskCallback();
+
+        if (context->getClientInfo().parallel_replicas_local_replica)
+            assert(context->parallel_reading_coordinator);
     }
 
 
@@ -593,7 +596,8 @@ Pipe ReadFromMergeTree::spreadMarkRangesAmongStreamsWithOrder(
             .colums_to_read = column_names
         };
 
-        pool = std::make_shared<MergeTreeInOrderReadPoolParallelReplicas>(parts_with_ranges, extension);
+        pool = std::make_shared<MergeTreeInOrderReadPoolParallelReplicas>(parts_with_ranges, extension,
+            read_type == ReadFromMergeTree::ReadType::InOrder ? CoordinationMode::WithOrder : CoordinationMode::ReverseOrder);
     }
 
 
@@ -1163,7 +1167,6 @@ MergeTreeDataSelectAnalysisResultPtr ReadFromMergeTree::selectRangesToRead(
 void ReadFromMergeTree::requestReadingInOrder(size_t prefix_size, int direction, size_t limit)
 {
     std::cout << "Request reading in order" << std::endl;
-    std::cout << StackTrace().toString() << std::endl;
 
     /// if dirction is not set, use current one
     if (!direction)
@@ -1174,6 +1177,17 @@ void ReadFromMergeTree::requestReadingInOrder(size_t prefix_size, int direction,
         query_info.projection->input_order_info = order_info;
     else
         query_info.input_order_info = order_info;
+
+    if (all_ranges_callback && context->getClientInfo().parallel_replicas_local_replica)
+    {
+        assert(context->parallel_reading_coordinator);
+
+        auto mode = direction == 1
+                       ? CoordinationMode::WithOrder
+                       : CoordinationMode::ReverseOrder;
+
+        context->parallel_reading_coordinator->setMode(mode);
+    }
 
     reader_settings.read_in_order = true;
 
@@ -1288,8 +1302,6 @@ void ReadFromMergeTree::initializePipeline(QueryPipelineBuilder & pipeline, cons
     // }
     if (input_order_info)
     {
-        // assert(query_info.coordinator);
-        // query_info.coordinator->initialize(CoordinationMode::WithOrder);
         pipe = spreadMarkRangesAmongStreamsWithOrder(
             std::move(result.parts_with_ranges),
             column_names_to_read,
@@ -1298,8 +1310,6 @@ void ReadFromMergeTree::initializePipeline(QueryPipelineBuilder & pipeline, cons
     }
     else
     {
-        // assert(query_info.coordinator);
-        // query_info.coordinator->initialize(CoordinationMode::Default);
         pipe = spreadMarkRangesAmongStreams(
             std::move(result.parts_with_ranges),
             column_names_to_read);
