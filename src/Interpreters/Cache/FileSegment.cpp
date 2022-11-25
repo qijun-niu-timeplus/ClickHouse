@@ -23,6 +23,19 @@ namespace ErrorCodes
     extern const int LOGICAL_ERROR;
 }
 
+String toString(FileSegmentKind type)
+{
+    switch (type)
+    {
+        case FileSegmentKind::Regular:
+            return "Regular";
+        case FileSegmentKind::Persistent:
+            return "Persistent";
+        case FileSegmentKind::Temporary:
+            return "Temporary";
+    }
+}
+
 FileSegment::FileSegment(
         size_t offset_,
         size_t size_,
@@ -39,7 +52,7 @@ FileSegment::FileSegment(
 #else
     , log(&Poco::Logger::get("FileSegment"))
 #endif
-    , is_persistent(settings.is_persistent)
+    , segment_kind(settings.type)
 {
     /// On creation, file segment state can be EMPTY, DOWNLOADED, DOWNLOADING.
     switch (download_state)
@@ -73,7 +86,7 @@ FileSegment::FileSegment(
 
 String FileSegment::getPathInLocalCache() const
 {
-    return cache->getPathInLocalCache(key(), offset(), isPersistent());
+    return cache->getPathInLocalCache(key(), offset(), segment_kind);
 }
 
 FileSegment::State FileSegment::state() const
@@ -561,6 +574,13 @@ void FileSegment::completeBasedOnCurrentState(std::lock_guard<std::mutex> & cach
         resetDownloaderUnlocked(segment_lock);
     }
 
+    if (segment_kind == FileSegmentKind::Temporary && is_last_holder)
+    {
+        cache->remove(key(), offset(), cache_lock, segment_lock);
+        LOG_TEST(log, "Removing temporary file segment: {}", getInfoForLogUnlocked(segment_lock));
+        return;
+    }
+
     switch (download_state)
     {
         case State::SKIP_CACHE:
@@ -642,7 +662,7 @@ String FileSegment::getInfoForLogUnlocked(std::unique_lock<std::mutex> & segment
     info << "first non-downloaded offset: " << getFirstNonDownloadedOffsetUnlocked(segment_lock) << ", ";
     info << "caller id: " << getCallerId() << ", ";
     info << "detached: " << is_detached << ", ";
-    info << "persistent: " << is_persistent;
+    info << "type: " << toString(segment_kind);
 
     return info.str();
 }
@@ -737,7 +757,7 @@ FileSegmentPtr FileSegment::getSnapshot(const FileSegmentPtr & file_segment, std
     snapshot->ref_count = file_segment.use_count();
     snapshot->downloaded_size = file_segment->getDownloadedSizeUnlocked(segment_lock);
     snapshot->download_state = file_segment->download_state;
-    snapshot->is_persistent = file_segment->isPersistent();
+    snapshot->segment_kind = file_segment->getKind();
 
     return snapshot;
 }
